@@ -1,0 +1,62 @@
+[project]
+name = "tower-planner"
+version = "0.1.0"
+description = "Telecommunications tower site planning and optimization"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Tower Planner Team" }
+]
+keywords = ["telecom", "tower", "planning", "rf", "propagation", "gis"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Telecommunications Industry",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+
+dependencies = [
+    "pydantic>=2.0.0",
+    "numpy>=1.24.0",
+    "rasterio>=1.3.0",
+    "pyproj>=3.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-benchmark>=4.0.0",
+    "mypy>=1.8.0",
+    "black>=24.0.0",
+    "isort>=5.13.0",
+    "pre-commit>=3.7.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["domain*", "src*"]
+
+# === Tool Configs ===
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "domain"]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
