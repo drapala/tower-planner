@@ -2,4 +2,3 @@
 
 Contains adapters and integrations (I/O, APIs, storage, etc.).
 """
-

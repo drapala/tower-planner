@@ -27,7 +27,16 @@ class FakeCRS:
 
 
 class FakeDataset:
-    def __init__(self, *, count: int, crs: str | None, transform, width: int, height: int, nodata=None):
+    def __init__(
+        self,
+        *,
+        count: int,
+        crs: str | None,
+        transform,
+        width: int,
+        height: int,
+        nodata=None,
+    ):
         self.count = count
         self.crs = FakeCRS(crs) if crs is not None else None
         self.transform = transform
@@ -35,10 +44,19 @@ class FakeDataset:
         self.height = height
         self.nodata = nodata
         # bounds: (left, bottom, right, top)
-        a, b, c, d, e, f = transform.a, transform.b, transform.c, transform.d, transform.e, transform.f
+        a, b, c, d, e, f = (
+            transform.a,
+            transform.b,
+            transform.c,
+            transform.d,
+            transform.e,
+            transform.f,
+        )
         # using formula for array_bounds would be circular; set via transform and dims
         # We'll rely on adapter's array_bounds for calculations.
-        self.bounds = SimpleNamespace(left=c, bottom=f + e * height, right=c + a * width, top=f)
+        self.bounds = SimpleNamespace(
+            left=c, bottom=f + e * height, right=c + a * width, top=f
+        )
 
     def read(self, band: int, *, masked: bool, out_dtype: str):
         # Default: gradient with single masked pixel at (0,0)
@@ -93,10 +111,22 @@ def test_same_crs_happy_path(monkeypatch, tmp_path, caplog):
     p.write_bytes(b"x")
 
     transform = Affine.translation(-10.0, 10.0) * Affine.scale(0.01, -0.01)
-    ds = FakeDataset(count=1, crs="EPSG:4326", transform=transform, width=100, height=100, nodata=None)
+    ds = FakeDataset(
+        count=1,
+        crs="EPSG:4326",
+        transform=transform,
+        width=100,
+        height=100,
+        nodata=None,
+    )
 
     monkeypatch.setattr("rasterio.open", lambda path: ds)
-    monkeypatch.setattr("rasterio.Env", lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False))
+    monkeypatch.setattr(
+        "rasterio.Env",
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
+    )
 
     adapter = GeoTiffTerrainAdapter()
     grid = adapter.load_dem(p)
@@ -118,7 +148,12 @@ def test_multiband_rejected(monkeypatch, tmp_path):
     transform = Affine.identity()
     ds = FakeDataset(count=3, crs="EPSG:4326", transform=transform, width=10, height=10)
     monkeypatch.setattr("rasterio.open", lambda path: ds)
-    monkeypatch.setattr("rasterio.Env", lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False))
+    monkeypatch.setattr(
+        "rasterio.Env",
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
+    )
 
     adapter = GeoTiffTerrainAdapter()
     with pytest.raises(InvalidRasterError):
@@ -134,7 +169,12 @@ def test_missing_crs_rejected(monkeypatch, tmp_path):
     transform = Affine.identity()
     ds = FakeDataset(count=1, crs=None, transform=transform, width=10, height=10)
     monkeypatch.setattr("rasterio.open", lambda path: ds)
-    monkeypatch.setattr("rasterio.Env", lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False))
+    monkeypatch.setattr(
+        "rasterio.Env",
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
+    )
 
     adapter = GeoTiffTerrainAdapter()
     with pytest.raises(MissingCRSError):
@@ -148,7 +188,14 @@ def test_reprojection_path(monkeypatch, tmp_path, caplog):
     p.write_bytes(b"x")
 
     src_transform = Affine.translation(500000.0, 7200000.0) * Affine.scale(30.0, -30.0)
-    ds = FakeDataset(count=1, crs="EPSG:31983", transform=src_transform, width=10, height=10, nodata=-9999)
+    ds = FakeDataset(
+        count=1,
+        crs="EPSG:31983",
+        transform=src_transform,
+        width=10,
+        height=10,
+        nodata=-9999,
+    )
 
     # Fake calculate_default_transform and reproject
     def fake_cdt(src_crs, dst_crs, w, h, *bounds):
@@ -159,9 +206,19 @@ def test_reprojection_path(monkeypatch, tmp_path, caplog):
         destination[:] = 100.0  # fill with a constant
 
     monkeypatch.setattr("rasterio.open", lambda path: ds)
-    monkeypatch.setattr("rasterio.Env", lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False))
-    monkeypatch.setattr("src.infrastructure.terrain.geotiff_adapter.calculate_default_transform", fake_cdt)
-    monkeypatch.setattr("src.infrastructure.terrain.geotiff_adapter.reproject", fake_reproject)
+    monkeypatch.setattr(
+        "rasterio.Env",
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
+    )
+    monkeypatch.setattr(
+        "src.infrastructure.terrain.geotiff_adapter.calculate_default_transform",
+        fake_cdt,
+    )
+    monkeypatch.setattr(
+        "src.infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
+    )
 
     adapter = GeoTiffTerrainAdapter()
     grid = adapter.load_dem(p)
@@ -193,7 +250,9 @@ def test_nodata_conversion_masked(monkeypatch, tmp_path):
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr(
         "rasterio.Env",
-        lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False),
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
     )
 
     adapter = GeoTiffTerrainAdapter()
@@ -222,7 +281,9 @@ def test_all_nodata_same_crs_raises(monkeypatch, tmp_path):
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr(
         "rasterio.Env",
-        lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False),
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
     )
 
     adapter = GeoTiffTerrainAdapter()
@@ -251,7 +312,9 @@ def test_logging_high_nodata_warning(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr(
         "rasterio.Env",
-        lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False),
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
     )
 
     caplog.set_level("WARNING")
@@ -266,7 +329,9 @@ def test_logging_reprojection_info(monkeypatch, tmp_path, caplog):
     p = tmp_path / "utm_reprj.tif"
     p.write_bytes(b"x")
 
-    ds = FakeDataset(count=1, crs="EPSG:31983", transform=Affine.identity(), width=5, height=5)
+    ds = FakeDataset(
+        count=1, crs="EPSG:31983", transform=Affine.identity(), width=5, height=5
+    )
 
     def fake_cdt(src_crs, dst_crs, w, h, *bounds):
         return Affine.identity(), 5, 5
@@ -277,10 +342,13 @@ def test_logging_reprojection_info(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr(
         "rasterio.Env",
-        lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False),
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
     )
     monkeypatch.setattr(
-        "src.infrastructure.terrain.geotiff_adapter.calculate_default_transform", fake_cdt
+        "src.infrastructure.terrain.geotiff_adapter.calculate_default_transform",
+        fake_cdt,
     )
     monkeypatch.setattr(
         "src.infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
@@ -312,7 +380,9 @@ def test_extreme_elevations_valid(monkeypatch, tmp_path):
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr(
         "rasterio.Env",
-        lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False),
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
     )
 
     adapter = GeoTiffTerrainAdapter()
@@ -333,7 +403,9 @@ def test_non_geotiff_rejected(monkeypatch, tmp_path):
     monkeypatch.setattr("rasterio.open", fake_open)
     monkeypatch.setattr(
         "rasterio.Env",
-        lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False),
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
     )
 
     adapter = GeoTiffTerrainAdapter()
@@ -353,7 +425,9 @@ def test_corrupted_file_rejected(monkeypatch, tmp_path):
     monkeypatch.setattr("rasterio.open", fake_open)
     monkeypatch.setattr(
         "rasterio.Env",
-        lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False),
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
     )
 
     adapter = GeoTiffTerrainAdapter()
@@ -367,7 +441,9 @@ def test_invalid_bounds_after_reproject_raises(monkeypatch, tmp_path):
     p = tmp_path / "bad_bounds_reproj.tif"
     p.write_bytes(b"x")
 
-    ds = FakeDataset(count=1, crs="EPSG:31983", transform=Affine.identity(), width=10, height=10)
+    ds = FakeDataset(
+        count=1, crs="EPSG:31983", transform=Affine.identity(), width=10, height=10
+    )
 
     def fake_cdt(src_crs, dst_crs, w, h, *bounds):
         # Produce obviously invalid lon/lat bounds via transform
@@ -379,10 +455,13 @@ def test_invalid_bounds_after_reproject_raises(monkeypatch, tmp_path):
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr(
         "rasterio.Env",
-        lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False),
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
     )
     monkeypatch.setattr(
-        "src.infrastructure.terrain.geotiff_adapter.calculate_default_transform", fake_cdt
+        "src.infrastructure.terrain.geotiff_adapter.calculate_default_transform",
+        fake_cdt,
     )
     monkeypatch.setattr(
         "src.infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
@@ -405,7 +484,9 @@ def test_path_vs_string_input(monkeypatch, tmp_path):
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr(
         "rasterio.Env",
-        lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False),
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
     )
 
     adapter = GeoTiffTerrainAdapter()
@@ -421,11 +502,15 @@ def test_large_file_loads_placeholder(monkeypatch, tmp_path):
     p = tmp_path / "large.tif"
     p.write_bytes(b"x")
 
-    ds = FakeDataset(count=1, crs="EPSG:4326", transform=Affine.identity(), width=100, height=100)
+    ds = FakeDataset(
+        count=1, crs="EPSG:4326", transform=Affine.identity(), width=100, height=100
+    )
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr(
         "rasterio.Env",
-        lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False),
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
     )
 
     adapter = GeoTiffTerrainAdapter()
@@ -440,7 +525,9 @@ def test_all_nodata_after_reproject_raises(monkeypatch, tmp_path):
     p.write_bytes(b"x")
 
     src_transform = Affine.identity()
-    ds = FakeDataset(count = 1, crs = "EPSG:31983", transform = src_transform, width = 10, height = 10)
+    ds = FakeDataset(
+        count=1, crs="EPSG:31983", transform=src_transform, width=10, height=10
+    )
 
     def fake_cdt(src_crs, dst_crs, w, h, *bounds):
         dst_transform = Affine.translation(0.0, 0.0) * Affine.scale(1.0, 1.0)
@@ -450,9 +537,19 @@ def test_all_nodata_after_reproject_raises(monkeypatch, tmp_path):
         destination[:] = np.nan
 
     monkeypatch.setattr("rasterio.open", lambda path: ds)
-    monkeypatch.setattr("rasterio.Env", lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False))
-    monkeypatch.setattr("src.infrastructure.terrain.geotiff_adapter.calculate_default_transform", fake_cdt)
-    monkeypatch.setattr("src.infrastructure.terrain.geotiff_adapter.reproject", fake_reproject)
+    monkeypatch.setattr(
+        "rasterio.Env",
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
+    )
+    monkeypatch.setattr(
+        "src.infrastructure.terrain.geotiff_adapter.calculate_default_transform",
+        fake_cdt,
+    )
+    monkeypatch.setattr(
+        "src.infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
+    )
 
     adapter = GeoTiffTerrainAdapter()
     with pytest.raises(AllNoDataError):
@@ -466,10 +563,17 @@ def test_memory_budget_exceeded_same_crs(monkeypatch, tmp_path):
     p.write_bytes(b"x")
 
     transform = Affine.identity()
-    ds = FakeDataset(count=1, crs="EPSG:4326", transform=transform, width=5000, height=5000)
+    ds = FakeDataset(
+        count=1, crs="EPSG:4326", transform=transform, width=5000, height=5000
+    )
 
     monkeypatch.setattr("rasterio.open", lambda path: ds)
-    monkeypatch.setattr("rasterio.Env", lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False))
+    monkeypatch.setattr(
+        "rasterio.Env",
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
+    )
 
     adapter = GeoTiffTerrainAdapter(max_bytes=10_000)  # too small
     with pytest.raises(InsufficientMemoryError):
@@ -487,7 +591,12 @@ def test_invalid_bounds_raise(monkeypatch, tmp_path):
     ds = FakeDataset(count=1, crs="EPSG:4326", transform=transform, width=10, height=10)
 
     monkeypatch.setattr("rasterio.open", lambda path: ds)
-    monkeypatch.setattr("rasterio.Env", lambda *a, **k: SimpleNamespace(__enter__=lambda s: s, __exit__=lambda s, *x: False))
+    monkeypatch.setattr(
+        "rasterio.Env",
+        lambda *a, **k: SimpleNamespace(
+            __enter__=lambda s: s, __exit__=lambda s, *x: False
+        ),
+    )
 
     adapter = GeoTiffTerrainAdapter()
     with pytest.raises(InvalidBoundsError):

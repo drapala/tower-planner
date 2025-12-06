@@ -16,12 +16,11 @@ Lifecycle (to avoid resource leaks):
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Optional, Tuple
-
 import logging
 import math
 import os
+from pathlib import Path
+from typing import Optional, Tuple
 
 import numpy as np
 import rasterio
@@ -61,9 +60,7 @@ class GeoTiffTerrainAdapter:
         Follows FEAT-001 behavior and invariants. This is a skeleton to be
         completed via TDD per CLAUDE.md.
         """
-        logger = logging.getLogger(
-            "src.infrastructure.terrain.geotiff_adapter"
-        )
+        logger = logging.getLogger("src.infrastructure.terrain.geotiff_adapter")
         path = Path(file_path)
 
         if not path.exists():
@@ -85,9 +82,7 @@ class GeoTiffTerrainAdapter:
                     if src.count == 0:
                         raise InvalidRasterError("Empty or bandless file")
                     if src.count != 1:
-                        raise InvalidRasterError(
-                            f"Expected 1 band, got {src.count}"
-                        )
+                        raise InvalidRasterError(f"Expected 1 band, got {src.count}")
                     if src.crs is None:
                         raise MissingCRSError("Raster has no CRS defined")
 
@@ -99,9 +94,18 @@ class GeoTiffTerrainAdapter:
                         raise InvalidGeotransformError("Missing affine transform")
                     if any(
                         math.isnan(v) or math.isinf(v)
-                        for v in (transform.a, transform.b, transform.c, transform.d, transform.e, transform.f)
+                        for v in (
+                            transform.a,
+                            transform.b,
+                            transform.c,
+                            transform.d,
+                            transform.e,
+                            transform.f,
+                        )
                     ):
-                        raise InvalidGeotransformError("Invalid (NaN/Inf) transform values")
+                        raise InvalidGeotransformError(
+                            "Invalid (NaN/Inf) transform values"
+                        )
                     if transform.a == 0 or transform.e == 0:
                         raise InvalidGeotransformError("Invalid transform scale (zero)")
 
@@ -131,11 +135,16 @@ class GeoTiffTerrainAdapter:
                         # Bounds and resolution
                         minx, miny, maxx, maxy = array_bounds(height, width, transform)
                         try:
-                            bounds = BoundingBox(min_x=minx, min_y=miny, max_x=maxx, max_y=maxy)
+                            bounds = BoundingBox(
+                                min_x=minx, min_y=miny, max_x=maxx, max_y=maxy
+                            )
                         except ValueError as e:
                             raise InvalidBoundsError(str(e)) from e
 
-                        resolution: Tuple[float, float] = (abs(transform.a), abs(transform.e))
+                        resolution: Tuple[float, float] = (
+                            abs(transform.a),
+                            abs(transform.e),
+                        )
 
                         # Bit-exact condition implicitly satisfied if source dtype was float32
                         grid = TerrainGrid(
@@ -152,9 +161,7 @@ class GeoTiffTerrainAdapter:
                             logger.warning(
                                 f"DEM {path}: {nodata_pct:.1f}% NoData pixels detected"
                             )
-                        logger.debug(
-                            f"DEM {path}: Loaded {width}x{height} grid"
-                        )
+                        logger.debug(f"DEM {path}: Loaded {width}x{height} grid")
                         return grid
 
                     # Reprojection path
@@ -191,12 +198,18 @@ class GeoTiffTerrainAdapter:
 
                     # Validate at least one non-NaN
                     if not np.any(~np.isnan(dst)):
-                        raise AllNoDataError("Raster contains 100% NoData pixels - unusable")
+                        raise AllNoDataError(
+                            "Raster contains 100% NoData pixels - unusable"
+                        )
 
                     # Bounds and resolution
-                    minx, miny, maxx, maxy = array_bounds(dst.shape[0], dst.shape[1], dst_transform)
+                    minx, miny, maxx, maxy = array_bounds(
+                        dst.shape[0], dst.shape[1], dst_transform
+                    )
                     try:
-                        bounds = BoundingBox(min_x=minx, min_y=miny, max_x=maxx, max_y=maxy)
+                        bounds = BoundingBox(
+                            min_x=minx, min_y=miny, max_x=maxx, max_y=maxy
+                        )
                     except ValueError as e:
                         raise InvalidBoundsError(str(e)) from e
 

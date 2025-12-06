@@ -6,6 +6,6 @@ This package contains the core business logic organized by bounded contexts:
 - siting: Site selection, constraints, optimization
 """
 
-from domain import terrain, coverage, siting
+from domain import coverage, siting, terrain
 
 __all__ = ["terrain", "coverage", "siting"]

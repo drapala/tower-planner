@@ -21,4 +21,3 @@ class TerrainRepository(Protocol):
     def load_dem(self, file_path: Path | str) -> TerrainGrid:
         """Load a DEM and return a normalized TerrainGrid in EPSG:4326."""
         ...
-
