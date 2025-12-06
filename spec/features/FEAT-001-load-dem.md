@@ -409,6 +409,7 @@ class InsufficientMemoryError(TerrainError):
 | Source CRS != EPSG:4326 | Reproject to EPSG:4326 | TC-002 |
 | Source CRS == EPSG:4326 | No reprojection, bit-exact copy | TC-009 |
 | Bounds outside WGS84 after reproject | Raise `InvalidBoundsError` | TC-016 |
+| Geotransform contains NaN or Inf | Raise `InvalidGeotransformError` | TC-019 |
 
 ---
 
@@ -574,26 +575,66 @@ def test_load_dem_memory_budget_exceeded(monkeypatch):
     with pytest.raises(InsufficientMemoryError):
         adapter.load_dem("tests/fixtures/dem_large.tif")
 ```
+
+### TC-019: Invalid Geotransform (NaN/Inf)
+```python
+def test_load_dem_nan_inf_geotransform():
+    # Geotransform with NaN or Inf values must be rejected
+    with pytest.raises(InvalidGeotransformError, match="NaN|Inf"):
+        load_dem("tests/fixtures/dem_nan_transform.tif")
+```
+
+> **Note**: PRE-6 requires valid geotransform. NaN/Inf values in affine
+> transform coefficients indicate corrupted or invalid raster metadata.
+
 ---
 
-## Non-Functional Requirements
+## SEC-01: Performance Verification Requirements
 
-### Performance Baseline
+Performance requirements enable benchmarks, CI regression detection, and informed decisions
+about future native kernels (C++/Rust).
 
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| 100MB file load (same CRS) | < 2 seconds | `pytest-benchmark` |
-| 100MB file load (reprojection) | < 5 seconds | `pytest-benchmark` |
-| Memory overhead | < 2x file size | Peak RSS during load |
+| ID | Requirement | Target | Measurement |
+|----|-------------|--------|-------------|
+| PERF-1 | Same-CRS raster load (100MB) | < 2 seconds | `pytest-benchmark` |
+| PERF-2 | Reprojection load (100MB UTM → EPSG:4326) | < 5 seconds | `pytest-benchmark` |
+| PERF-3 | Memory overhead | < 2× raster size (float32) | Peak RSS during load |
+| PERF-4 | OOM handling | Fail fast with `InsufficientMemoryError` | Budget check before allocation |
+| PERF-5 | Version regression tolerance | < 20% degradation between versions | CI benchmark comparison |
+| PERF-6 | Thread safety | Safe for concurrent reads (different files) | No global state; `rasterio.Env()` isolation |
 
-> These are guidelines, not hard requirements. Used for regression detection.
+### Performance Notes
 
-### Thread Safety
+- **PERF-1/PERF-2**: Targets assume SSD storage; HDD may be slower.
+- **PERF-3**: Memory budget is `width × height × 4` bytes for float32.
+- **PERF-5**: Significant regressions should block merge and require investigation.
+- **PERF-6**: Same-file concurrent reads are OS-dependent (file locking); use separate handles or process parallelism.
 
-> `load_dem()` is **thread-safe** for reading different files concurrently.
-> **Not guaranteed** for same file from multiple threads (OS-dependent file locking).
-> For concurrent processing, use separate file handles or process-level parallelism.
-> Adapters SHOULD use `rasterio.Env()` to isolate GDAL/PROJ configuration when needed.
+---
+
+## SEC-02: Security Considerations
+
+Security requirements protect against malicious files, DoS via oversized rasters,
+and unintended behavior in CI/cluster environments.
+
+| ID | Requirement | Rationale |
+|----|-------------|-----------|
+| SEC-1 | No external command execution | Adapter must not shell out to GDAL CLI or other tools |
+| SEC-2 | Corrupted files raise `InvalidRasterError` immediately | Fail fast; no partial processing of malformed data |
+| SEC-3 | Oversized files raise `InsufficientMemoryError` | Prevent OOM crashes via pre-allocation budget check |
+| SEC-4 | Use `rasterio.Env()` for PROJ isolation | Prevent environment variable leakage between threads |
+| SEC-5 | No symlink traversal outside sandbox | Adapter should not follow symlinks without explicit validation |
+| SEC-6 | Reject non-GeoTIFF extensions | Files like `.png`, `.jpg`, `.bin` must raise `InvalidRasterError` |
+| SEC-7 | No sensitive paths in logs | Avoid info leakage; log only filenames, not full paths |
+| SEC-8 | Thread-safe (no global state) | Safe for multithreaded execution |
+| SEC-9 | No silent failure masking | Every inconsistency must raise a specific exception |
+
+### Security Notes
+
+- **SEC-1**: All raster operations use rasterio's Python API only.
+- **SEC-5**: Current implementation uses `Path` which resolves symlinks; consider adding explicit check if sandboxing is required.
+- **SEC-6**: Extension validation is implicit via rasterio driver detection; explicit check may be added.
+- **SEC-7**: Current logging uses `{path}` which may include full path; consider using `path.name` for production.
 
 ---
 
@@ -624,7 +665,9 @@ tests/fixtures/
 ├── dem_large.tif                         # Large raster (size varies; mark as slow)
 ├── dem_extreme_elevations.tif            # Contains negative and >8000m elevations
 ├── image.png                             # Non-GeoTIFF
-└── dem_polar_extreme.tif                 # Reprojection pushes bounds outside WGS84
+├── dem_polar_extreme.tif                 # Reprojection pushes bounds outside WGS84
+├── dem_corrupted.tif                     # Truncated/invalid TIFF for TC-015
+└── dem_nan_transform.tif                 # NaN in geotransform for TC-019
 ```
 
 Include a `tests/fixtures/README.md` or script (e.g., `scripts/gen_fixtures.py`) detailing how to generate each file with rasterio/numpy.
@@ -649,7 +692,7 @@ Include a `tests/fixtures/README.md` or script (e.g., `scripts/gen_fixtures.py`)
 
 ## Acceptance Criteria
 
-- [ ] All 17 test cases pass
+- [ ] All 19 test cases pass (TC-001 through TC-019)
 - [ ] `load_dem()` returns normalized EPSG:4326 grid
 - [ ] Port/Adapter: `TerrainRepository` (domain) and `GeoTiffTerrainAdapter` (infrastructure)
 - [ ] CRS reprojection works for common Brazilian CRS (31983, 4674)
@@ -666,4 +709,4 @@ Include a `tests/fixtures/README.md` or script (e.g., `scripts/gen_fixtures.py`)
 
 ---
 
-<!-- FEAT-001 v1.5.0 — Infrastructure layer, antimeridian docs, bit-exact clarification, X/Y resolution -->
+<!-- FEAT-001 v1.7.0 — Added SEC-01 (Performance) and SEC-02 (Security) requirements -->
