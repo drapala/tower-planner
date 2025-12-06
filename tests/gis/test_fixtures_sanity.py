@@ -29,8 +29,18 @@ FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 def _is_real_rasterio() -> bool:
     """Check if we have real rasterio (not the stub).
 
-    Note: The conftest.py in this directory removes src/ from sys.path,
-    which should allow the real rasterio to be imported.
+    TEMPORARY WORKAROUND: This detection logic uses __version__ and path
+    heuristics because the project has a stub in src/rasterio/ that shadows
+    the real package. Once TD-002 is implemented (moving stubs to tests/stubs/),
+    this function can be simplified to a plain import check:
+
+        try:
+            import rasterio
+            return True
+        except ImportError:
+            return False
+
+    See: spec/tech-debt/FEAT-001-tech-debt.md (TD-002)
     """
     try:
         import rasterio

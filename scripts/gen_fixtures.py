@@ -119,7 +119,7 @@ def gen_dem_with_nodata() -> None:
     """Generate 20x20 DEM with defined nodata value and some masked pixels.
 
     - nodata = -9999
-    - ~10% pixels are nodata (top-left corner)
+    - ~1% pixels are nodata (4/400, top-left 2x2 corner)
     """
     path = FIXTURES_DIR / "dem_with_nodata.tif"
     height, width = 20, 20
@@ -128,7 +128,7 @@ def gen_dem_with_nodata() -> None:
     # Create elevation data
     data = np.linspace(50, 200, height * width, dtype=np.float32).reshape(height, width)
 
-    # Set top-left 2x2 region as nodata (~10% of 20x20 = 40 pixels, using 4)
+    # Set top-left 2x2 region as nodata (4/400 = 1%)
     data[0:2, 0:2] = nodata
 
     transform = Affine.translation(-45.0, -20.0) * Affine.scale(0.01, -0.01)
@@ -191,7 +191,7 @@ def gen_dem_no_crs() -> None:
     """Generate 10x10 DEM without CRS definition.
 
     - Should trigger MissingCRSError
-    - Note: rasterio requires workaround to create CRS-less TIFF
+    - rasterio supports crs=None to create CRS-less TIFFs
     """
     path = FIXTURES_DIR / "dem_no_crs.tif"
     height, width = 10, 10
@@ -199,7 +199,6 @@ def gen_dem_no_crs() -> None:
     data = np.linspace(0, 100, height * width, dtype=np.float32).reshape(height, width)
     transform = Affine.translation(0.0, 0.0) * Affine.scale(1.0, -1.0)
 
-    # Create with CRS first, then we'll strip it
     with rasterio.open(
         path,
         "w",
@@ -388,9 +387,9 @@ def gen_dem_large() -> None:
     path = FIXTURES_DIR / "dem_large.tif"
     height, width = 500, 500
 
-    # Create random-ish elevation data
-    np.random.seed(42)  # Reproducible
-    data = (np.random.rand(height, width) * 1000).astype(np.float32)
+    # Create random-ish elevation data using modern Generator API (thread-safe)
+    rng = np.random.default_rng(42)
+    data = (rng.random((height, width)) * 1000).astype(np.float32)
 
     transform = Affine.translation(-50.0, -10.0) * Affine.scale(0.01, -0.01)
 
