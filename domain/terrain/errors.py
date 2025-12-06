@@ -26,3 +26,7 @@ class AllNoDataError(TerrainError):
 
 class InvalidBoundsError(TerrainError):
     """Raster bounds are outside valid WGS84 range after reprojection."""
+
+
+class InsufficientMemoryError(TerrainError):
+    """Operation requires more memory than allowed or available."""
