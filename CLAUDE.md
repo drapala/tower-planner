@@ -66,6 +66,12 @@ tower-planner/
     └── gis/               # Infrastructure tests
 ```
 
+### Path Prefix Note
+
+- Domain code resides at project root under `domain/…` (not `src/domain/…`).
+- Infrastructure code resides under `src/infrastructure/…`.
+- This convention keeps the domain independent from application/infrastructure concerns.
+
 ### Layer Responsibilities
 
 | Layer | Location | Contains | I/O Allowed |
