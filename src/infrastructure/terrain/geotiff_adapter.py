@@ -121,6 +121,11 @@ class GeoTiffTerrainAdapter:
                             data = np.where(data.mask, np.nan, data.data).astype(
                                 np.float32, copy=False
                             )
+                        # All NoData in same-CRS path
+                        if not np.any(~np.isnan(data)):
+                            raise AllNoDataError(
+                                "Raster contains 100% NoData pixels - unusable"
+                            )
 
                         height, width = data.shape
 
