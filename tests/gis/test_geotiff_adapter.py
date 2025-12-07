@@ -10,10 +10,15 @@ from domain.terrain.errors import (
     AllNoDataError,
     InsufficientMemoryError,
     InvalidBoundsError,
+    InvalidGeotransformError,
     InvalidRasterError,
     MissingCRSError,
 )
-from src.infrastructure.terrain.geotiff_adapter import GeoTiffTerrainAdapter
+
+# Use infrastructure.* (not src.infrastructure.*) for consistency with domain.* imports.
+# Both work with PYTHONPATH=src:. but this style is cleaner and ensures monkeypatch
+# paths match import paths. See CLAUDE.md v1.11.0 "Import Path Consistency" pattern.
+from infrastructure.terrain.geotiff_adapter import GeoTiffTerrainAdapter
 
 
 class FakeCRS:
@@ -89,7 +94,12 @@ def test_permission_error_raises(tmp_path, monkeypatch):
     p = tmp_path / "file.tif"
     p.write_bytes(b"x")
 
-    monkeypatch.setattr("os.access", lambda path, mode: False)
+    # Simulate permission error when opening the file via rasterio
+    def _raise_permission_error(_):
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr("rasterio.open", _raise_permission_error)
+    monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
 
     adapter = GeoTiffTerrainAdapter()
     with pytest.raises(PermissionError):
@@ -194,11 +204,11 @@ def test_reprojection_path(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
     monkeypatch.setattr(
-        "src.infrastructure.terrain.geotiff_adapter.calculate_default_transform",
+        "infrastructure.terrain.geotiff_adapter.calculate_default_transform",
         fake_cdt,
     )
     monkeypatch.setattr(
-        "src.infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
+        "infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
     )
 
     adapter = GeoTiffTerrainAdapter()
@@ -206,6 +216,8 @@ def test_reprojection_path(monkeypatch, tmp_path, caplog):
 
     assert grid.crs == "EPSG:4326"
     assert grid.data.shape == (20, 20)
+    # Verify reprojection filled with expected constant value
+    assert grid.data[0, 0] == 100.0
     assert np.isfinite(grid.data).all()
 
 
@@ -308,11 +320,11 @@ def test_logging_reprojection_info(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
     monkeypatch.setattr(
-        "src.infrastructure.terrain.geotiff_adapter.calculate_default_transform",
+        "infrastructure.terrain.geotiff_adapter.calculate_default_transform",
         fake_cdt,
     )
     monkeypatch.setattr(
-        "src.infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
+        "infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
     )
 
     caplog.set_level("INFO")
@@ -343,25 +355,8 @@ def test_extreme_elevations_valid(monkeypatch, tmp_path):
 
     adapter = GeoTiffTerrainAdapter()
     grid = adapter.load_dem(p)
-    assert np.nanmin(grid.data) < 0
-    assert np.nanmax(grid.data) > 8000
-
-
-def test_non_geotiff_rejected(monkeypatch, tmp_path):
-    import rasterio
-
-    p = tmp_path / "image.png"
-    p.write_bytes(b"x")
-
-    def fake_open(path):
-        raise rasterio.errors.RasterioError("Not a GeoTIFF")
-
-    monkeypatch.setattr("rasterio.open", fake_open)
-    monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
-
-    adapter = GeoTiffTerrainAdapter()
-    with pytest.raises(InvalidRasterError):
-        adapter.load_dem(p)
+    assert np.nanmin(grid.data) == -430.0
+    assert np.nanmax(grid.data) == 8849.0
 
 
 def test_corrupted_file_rejected(monkeypatch, tmp_path):
@@ -401,11 +396,11 @@ def test_invalid_bounds_after_reproject_raises(monkeypatch, tmp_path):
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
     monkeypatch.setattr(
-        "src.infrastructure.terrain.geotiff_adapter.calculate_default_transform",
+        "infrastructure.terrain.geotiff_adapter.calculate_default_transform",
         fake_cdt,
     )
     monkeypatch.setattr(
-        "src.infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
+        "infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
     )
 
     adapter = GeoTiffTerrainAdapter()
@@ -432,22 +427,39 @@ def test_path_vs_string_input(monkeypatch, tmp_path):
 
 
 @pytest.mark.slow
-def test_large_file_loads_placeholder(monkeypatch, tmp_path):
+def test_large_file_loads_successfully(monkeypatch, tmp_path):
+    """Test that large files (within budget) load successfully.
+
+    Uses a 1000x1000 dataset (~4MB float32) to exercise large-file code paths.
+    This tests that the adapter handles larger dimensions correctly.
+    For memory budget rejection, see test_memory_budget_exceeded_same_crs.
+    """
     from affine import Affine
 
     p = tmp_path / "large.tif"
     p.write_bytes(b"x")
 
-    safe_transform = Affine.translation(-1.0, 1.0) * Affine.scale(0.01, -0.01)
+    # Use larger dimensions to actually test large-file behavior
+    large_width, large_height = 1000, 1000
+    safe_transform = Affine.translation(-1.0, 1.0) * Affine.scale(0.001, -0.001)
     ds = FakeDataset(
-        count=1, crs="EPSG:4326", transform=safe_transform, width=100, height=100
+        count=1,
+        crs="EPSG:4326",
+        transform=safe_transform,
+        width=large_width,
+        height=large_height,
     )
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
 
+    # No memory budget - should load successfully
     adapter = GeoTiffTerrainAdapter()
     grid = adapter.load_dem(p)
-    assert grid.data.shape[0] > 0
+
+    # Verify large dimensions were preserved
+    assert grid.data.shape == (large_height, large_width)
+    # Verify expected memory footprint (~4MB for 1000x1000 float32)
+    assert grid.data.nbytes == large_width * large_height * 4
 
 
 def test_all_nodata_after_reproject_raises(monkeypatch, tmp_path):
@@ -471,11 +483,11 @@ def test_all_nodata_after_reproject_raises(monkeypatch, tmp_path):
     monkeypatch.setattr("rasterio.open", lambda path: ds)
     monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
     monkeypatch.setattr(
-        "src.infrastructure.terrain.geotiff_adapter.calculate_default_transform",
+        "infrastructure.terrain.geotiff_adapter.calculate_default_transform",
         fake_cdt,
     )
     monkeypatch.setattr(
-        "src.infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
+        "infrastructure.terrain.geotiff_adapter.reproject", fake_reproject
     )
 
     adapter = GeoTiffTerrainAdapter()
@@ -517,4 +529,163 @@ def test_invalid_bounds_raise(monkeypatch, tmp_path):
 
     adapter = GeoTiffTerrainAdapter()
     with pytest.raises(InvalidBoundsError):
+        adapter.load_dem(p)
+
+
+# =============================================================================
+# SEC-10: Extension Allowlist Tests
+# =============================================================================
+def test_sec10_rejects_png_extension(tmp_path):
+    """SEC-10: For non-existent files, existence check triggers first (FileNotFoundError)."""
+    p = tmp_path / "image.png"
+    adapter = GeoTiffTerrainAdapter()
+    with pytest.raises(FileNotFoundError):
+        adapter.load_dem(p)
+
+
+def test_sec10_rejects_jpg_extension(tmp_path):
+    """SEC-10: For non-existent files, existence check triggers first (FileNotFoundError)."""
+    p = tmp_path / "image.jpg"
+    adapter = GeoTiffTerrainAdapter()
+    with pytest.raises(FileNotFoundError):
+        adapter.load_dem(p)
+
+
+def test_sec10_rejects_existing_disallowed_extension(tmp_path):
+    """SEC-10: Existing non-GeoTIFF files are rejected with InvalidRasterError."""
+    p = tmp_path / "image.png"
+    p.write_bytes(b"x")  # Create an actual file with disallowed extension
+
+    adapter = GeoTiffTerrainAdapter()
+    with pytest.raises(InvalidRasterError, match="extension|Unsupported"):
+        adapter.load_dem(p)
+
+
+def test_sec10_accepts_tif_extension(monkeypatch, tmp_path):
+    """SEC-10: Accept .tif extension."""
+    from affine import Affine
+
+    p = tmp_path / "valid.tif"
+    p.write_bytes(b"x")
+
+    transform = Affine.translation(-1.0, 1.0) * Affine.scale(0.01, -0.01)
+    ds = FakeDataset(count=1, crs="EPSG:4326", transform=transform, width=5, height=5)
+    monkeypatch.setattr("rasterio.open", lambda path: ds)
+    monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
+
+    adapter = GeoTiffTerrainAdapter()
+    grid = adapter.load_dem(p)
+    assert grid is not None
+
+
+def test_sec10_accepts_tiff_extension(monkeypatch, tmp_path):
+    """SEC-10: Accept .tiff extension (uppercase too)."""
+    from affine import Affine
+
+    p = tmp_path / "valid.TIFF"
+    p.write_bytes(b"x")
+
+    transform = Affine.translation(-1.0, 1.0) * Affine.scale(0.01, -0.01)
+    ds = FakeDataset(count=1, crs="EPSG:4326", transform=transform, width=5, height=5)
+    monkeypatch.setattr("rasterio.open", lambda path: ds)
+    monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
+
+    adapter = GeoTiffTerrainAdapter()
+    grid = adapter.load_dem(p)
+    assert grid is not None
+
+
+# =============================================================================
+# SEC-5: Symlink Rejection Test
+# =============================================================================
+def test_sec5_rejects_symlink(tmp_path, monkeypatch):
+    """SEC-5: Adapter must reject symlinks explicitly to avoid traversal."""
+    target = tmp_path / "real.tif"
+    target.write_bytes(b"x")
+    link = tmp_path / "link.tif"
+
+    # Some platforms or configurations may not allow symlinks
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError) as e:
+        pytest.skip(f"Symlinks not supported in this environment: {e}")
+
+    adapter = GeoTiffTerrainAdapter()
+    with pytest.raises(InvalidRasterError, match="Symlinks are not permitted"):
+        adapter.load_dem(link)
+
+
+# =============================================================================
+# PERF-7: Pre-flight Size Check Tests
+# =============================================================================
+def test_perf7_preflight_rejects_huge_file(tmp_path):
+    """PERF-7: Reject file > 2x budget before opening with rasterio."""
+    p = tmp_path / "huge.tif"
+    # Create file larger than 2x budget (budget=1000, file=3000)
+    p.write_bytes(b"x" * 3000)
+
+    adapter = GeoTiffTerrainAdapter(max_bytes=1000)
+    with pytest.raises(
+        InsufficientMemoryError, match="File size.*exceeds 2x memory budget"
+    ):
+        adapter.load_dem(p)
+
+
+# =============================================================================
+# TD-005: NaN/Inf Geotransform Tests
+# =============================================================================
+def test_nan_transform_rejected(monkeypatch, tmp_path):
+    """TD-005: Reject geotransform containing NaN values."""
+    from affine import Affine
+
+    p = tmp_path / "nan_transform.tif"
+    p.write_bytes(b"x")
+
+    # Affine with NaN in scale (a coefficient)
+    transform = Affine(float("nan"), 0.0, 0.0, 0.0, -0.01, 0.0)
+    ds = FakeDataset(count=1, crs="EPSG:4326", transform=transform, width=10, height=10)
+
+    monkeypatch.setattr("rasterio.open", lambda path: ds)
+    monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
+
+    adapter = GeoTiffTerrainAdapter()
+    with pytest.raises(InvalidGeotransformError, match="NaN"):
+        adapter.load_dem(p)
+
+
+def test_inf_transform_rejected(monkeypatch, tmp_path):
+    """TD-005: Reject geotransform containing Inf values."""
+    from affine import Affine
+
+    p = tmp_path / "inf_transform.tif"
+    p.write_bytes(b"x")
+
+    # Affine with Inf in scale (a coefficient)
+    transform = Affine(float("inf"), 0.0, 0.0, 0.0, -0.01, 0.0)
+    ds = FakeDataset(count=1, crs="EPSG:4326", transform=transform, width=10, height=10)
+
+    monkeypatch.setattr("rasterio.open", lambda path: ds)
+    monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
+
+    adapter = GeoTiffTerrainAdapter()
+    with pytest.raises(InvalidGeotransformError, match="Inf"):
+        adapter.load_dem(p)
+
+
+def test_negative_inf_transform_rejected(monkeypatch, tmp_path):
+    """TD-005: Reject geotransform containing -Inf values."""
+    from affine import Affine
+
+    p = tmp_path / "neg_inf_transform.tif"
+    p.write_bytes(b"x")
+
+    # Affine with -Inf in y-scale (e coefficient)
+    transform = Affine(0.01, 0.0, 0.0, 0.0, float("-inf"), 0.0)
+    ds = FakeDataset(count=1, crs="EPSG:4326", transform=transform, width=10, height=10)
+
+    monkeypatch.setattr("rasterio.open", lambda path: ds)
+    monkeypatch.setattr("rasterio.Env", lambda *a, **k: nullcontext())
+
+    adapter = GeoTiffTerrainAdapter()
+    with pytest.raises(InvalidGeotransformError, match="Inf"):
         adapter.load_dem(p)

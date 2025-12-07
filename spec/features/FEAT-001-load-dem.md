@@ -3,7 +3,7 @@
 **Status**: Draft
 **BC**: terrain
 **Priority**: P0 (Foundation)
-**Version**: 1.5.0
+**Version**: 1.9.0
 
 ---
 
@@ -602,6 +602,7 @@ about future native kernels (C++/Rust).
 | PERF-4 | OOM handling | Fail fast with `InsufficientMemoryError` | Budget check before allocation |
 | PERF-5 | Version regression tolerance | < 20% degradation between versions | CI benchmark comparison |
 | PERF-6 | Thread safety | Safe for concurrent reads (different files) | No global state; `rasterio.Env()` isolation |
+| PERF-7 | Pre-flight size check | Fail fast if file > 2× budget | `stat().st_size` before `rasterio.open()` |
 
 ### Performance Notes
 
@@ -609,6 +610,7 @@ about future native kernels (C++/Rust).
 - **PERF-3**: Memory budget is `width × height × 4` bytes for float32.
 - **PERF-5**: Significant regressions should block merge and require investigation.
 - **PERF-6**: Same-file concurrent reads are OS-dependent (file locking); use separate handles or process parallelism.
+- **PERF-7**: ✅ Implemented - checks `st_size > max_bytes * 2` before opening with rasterio.
 
 ---
 
@@ -628,13 +630,15 @@ and unintended behavior in CI/cluster environments.
 | SEC-7 | No sensitive paths in logs | Avoid info leakage; log only filenames, not full paths |
 | SEC-8 | Thread-safe (no global state) | Safe for multithreaded execution |
 | SEC-9 | No silent failure masking | Every inconsistency must raise a specific exception |
+| SEC-10 | Extension allowlist | Only `.tif`/`.tiff` extensions accepted; others raise `InvalidRasterError` |
 
 ### Security Notes
 
 - **SEC-1**: All raster operations use rasterio's Python API only.
-- **SEC-5**: Current implementation uses `Path` which resolves symlinks; consider adding explicit check if sandboxing is required.
+- **SEC-5**: ✅ Implemented - explicit symlink rejection (adapter raises `InvalidRasterError("Symlinks are not permitted")`).
 - **SEC-6**: Extension validation is implicit via rasterio driver detection; explicit check may be added.
-- **SEC-7**: Current logging uses `{path}` which may include full path; consider using `path.name` for production.
+- **SEC-7**: ✅ Implemented - logging uses `path.name` (filename only) and avoids embedding absolute paths; stat errors log only filename, errno, and strerror.
+- **SEC-10**: ✅ Implemented - explicit extension check before processing (`.tif`, `.tiff` only).
 
 ---
 
@@ -706,7 +710,17 @@ Include a `tests/fixtures/README.md` or script (e.g., `scripts/gen_fixtures.py`)
 - [ ] Type hints complete and mypy passes
 - [ ] Docstring with examples
 - [ ] Performance within baseline (non-blocking)
+- [ ] Symlinks are rejected with `InvalidRasterError`
 
 ---
 
-<!-- FEAT-001 v1.7.0 — Added SEC-01 (Performance) and SEC-02 (Security) requirements -->
+<!--
+FEAT-001 v1.9.0 | Last updated: 2025-12-06
+
+IMPORTANT: Always update the "Last updated" date above when modifying this file.
+Format: YYYY-MM-DD
+
+Changelog:
+- v1.9.0 (2025-12-06): Added PERF-7 (pre-flight size check) and SEC-10 (extension allowlist)
+- v1.8.0 (2025-12-06): Added SEC-7 (log filenames only)
+-->

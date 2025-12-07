@@ -1,8 +1,11 @@
-"""Minimal Affine stub to support tests without external dependency."""
+"""Minimal Affine stub to support tests without external dependency.
+
+Location: tests/stubs/affine/ (moved from src/affine/ per TD-002)
+"""
 
 from __future__ import annotations
 
-from typing import Iterator, Tuple
+from typing import Iterator
 
 
 class Affine:
@@ -27,7 +30,18 @@ class Affine:
     def scale(sx: float, sy: float) -> "Affine":
         return Affine(sx, 0.0, 0.0, 0.0, sy, 0.0)
 
-    def __mul__(self, other: "Affine | tuple[float, float]") -> object:
+    def __mul__(
+        self, other: Affine | tuple[float, float]
+    ) -> Affine | tuple[float, float]:
+        """Compose with another Affine or apply to a (col, row) point.
+
+        Args:
+            other: Another Affine for composition, or (col, row) tuple to transform.
+
+        Returns:
+            Affine: When composing with another Affine.
+            tuple[float, float]: When transforming a point (x, y).
+        """
         # Composition with another Affine
         if isinstance(other, Affine):
             a = self.a * other.a + self.b * other.d
@@ -43,7 +57,7 @@ class Affine:
             x = self.a * col + self.b * row + self.c
             y = self.d * col + self.e * row + self.f
             return (x, y)
-        return NotImplemented
+        return NotImplemented  # type: ignore[return-value]
 
     # Enable unpacking like a,b,c,d,e,f = transform
     def __iter__(self) -> Iterator[float]:

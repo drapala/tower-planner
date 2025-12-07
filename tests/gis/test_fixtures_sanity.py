@@ -11,8 +11,8 @@ Behavioral tests are in test_geotiff_adapter.py.
 Requires: pip install rasterio numpy pytest
 Run: pytest tests/gis/test_fixtures_sanity.py -m integration
 
-Note: These tests require REAL rasterio, not the stub in src/rasterio/.
-      Run with: PYTHONPATH= pytest tests/gis/test_fixtures_sanity.py -m integration
+Note: These tests require REAL rasterio, not the stub in tests/stubs/rasterio/.
+      Run with: pytest tests/gis/test_fixtures_sanity.py -m integration
       Or ensure real rasterio is installed and takes precedence.
 """
 
@@ -20,46 +20,18 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures_expected import EXPECTED_FIXTURES
+from tests.gis.conftest import get_fixtures_dir, has_real_rasterio
+
 # Mark all tests in this module as integration tests
 pytestmark = pytest.mark.integration
 
-FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
+FIXTURES_DIR = get_fixtures_dir()
 
 
-def _is_real_rasterio() -> bool:
-    """Check if we have real rasterio (not the stub).
-
-    TEMPORARY WORKAROUND: This detection logic uses __version__ and path
-    heuristics because the project has a stub in src/rasterio/ that shadows
-    the real package. Once TD-002 is implemented (moving stubs to tests/stubs/),
-    this function can be simplified to a plain import check:
-
-        try:
-            import rasterio
-            return True
-        except ImportError:
-            return False
-
-    See: spec/tech-debt/FEAT-001-tech-debt.md (TD-002)
-    """
-    try:
-        import rasterio
-
-        # Real rasterio has __version__ attribute; stub does not
-        if not hasattr(rasterio, "__version__"):
-            return False
-
-        # Check that it's not from our src/ stub directory
-        rasterio_path = Path(rasterio.__file__).resolve()
-        src_stub_path = (Path(__file__).parent.parent.parent / "src" / "rasterio").resolve()
-        return not str(rasterio_path).startswith(str(src_stub_path))
-    except ImportError:
-        return False
-
-
-# Skip tests that need real rasterio if we only have the stub
+# Skip tests that need real rasterio if only the stub is available
 requires_real_rasterio = pytest.mark.skipif(
-    not _is_real_rasterio(),
+    not has_real_rasterio(),
     reason="Requires real rasterio (not stub). Install rasterio: pip install rasterio",
 )
 
@@ -78,27 +50,7 @@ def fixture_path(name: str) -> Path:
 class TestFixturesExist:
     """Verify all required fixtures exist."""
 
-    @pytest.mark.parametrize(
-        "filename",
-        [
-            "dem_100x100_4326.tif",
-            "dem_utm23s.tif",
-            "dem_with_nodata.tif",
-            "dem_all_nodata.tif",
-            "dem_no_crs.tif",
-            "rgb_image.tif",
-            "dem_known_values_4326.tif",
-            "dem_known_values_4326_int16.tif",
-            "empty.tif",
-            "dem_85pct_nodata.tif",
-            "dem_large.tif",
-            "dem_extreme_elevations.tif",
-            "image.png",
-            "dem_corrupted.tif",
-            "dem_polar_extreme.tif",
-            "dem_nan_transform.tif",
-        ],
-    )
+    @pytest.mark.parametrize("filename", EXPECTED_FIXTURES)
     def test_fixture_exists(self, filename: str) -> None:
         """Verify fixture file exists."""
         path = fixture_path(filename)
@@ -221,7 +173,8 @@ class TestValidGeoTiffs:
             assert src.nodata == -9999.0
             data = src.read(1)
             nodata_pct = np.sum(data == src.nodata) / data.size * 100
-            assert nodata_pct > 80  # Should be ~84%
+            # 20x20 = 400 pixels, 8x8 = 64 valid, 336 nodata = 84%
+            assert nodata_pct == pytest.approx(84.0, abs=1.0)
 
     def test_dem_large(self) -> None:
         """TC-012/TC-018: Large file fixture."""
@@ -305,7 +258,9 @@ class TestSpecialFixtures:
         import rasterio
 
         path = fixture_path("dem_corrupted.tif")
-        with pytest.raises((rasterio.errors.RasterioIOError, rasterio.errors.RasterioError)):
+        with pytest.raises(
+            (rasterio.errors.RasterioIOError, rasterio.errors.RasterioError)
+        ):
             with rasterio.open(path):
                 pass
 
@@ -317,14 +272,43 @@ class TestFixturesSummary:
     """Summary tests for fixture collection."""
 
     def test_total_fixture_count(self) -> None:
-        """Verify we have exactly 16 fixtures."""
+        """Verify we have exactly the expected number of fixtures."""
         files = list(FIXTURES_DIR.iterdir())
         # Exclude README.md
         fixture_files = [f for f in files if f.suffix in (".tif", ".png")]
-        assert len(fixture_files) == 16
+        assert len(fixture_files) == len(
+            EXPECTED_FIXTURES
+        ), f"Expected {len(EXPECTED_FIXTURES)} fixtures, found {len(fixture_files)}"
 
     def test_total_size_under_2mb(self) -> None:
         """Verify total fixture size is reasonable."""
-        total_size = sum(f.stat().st_size for f in FIXTURES_DIR.iterdir() if f.is_file())
+        total_size = sum(
+            f.stat().st_size for f in FIXTURES_DIR.iterdir() if f.is_file()
+        )
         # Should be under 2MB
-        assert total_size < 2 * 1024 * 1024, f"Total size: {total_size / 1024 / 1024:.2f}MB"
+        assert (
+            total_size < 2 * 1024 * 1024
+        ), f"Total size: {total_size / 1024 / 1024:.2f}MB"
+
+    def test_fixture_filenames_match_expected(self) -> None:
+        """Verify actual fixture filenames match EXPECTED_FIXTURES exactly.
+
+        This catches mismatched names even when counts match (e.g., typos,
+        renames without updating the expected list).
+        """
+        fixture_files = sorted(
+            f.name for f in FIXTURES_DIR.iterdir() if f.suffix in (".tif", ".png")
+        )
+        expected = sorted(EXPECTED_FIXTURES)
+
+        found_set = set(fixture_files)
+        expected_set = set(expected)
+
+        missing = expected_set - found_set
+        extra = found_set - expected_set
+
+        assert found_set == expected_set, (
+            f"Fixture filenames mismatch.\n"
+            f"Missing (expected but not found): {sorted(missing) or 'none'}\n"
+            f"Extra (found but not expected): {sorted(extra) or 'none'}"
+        )

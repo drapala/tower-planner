@@ -87,8 +87,9 @@ python scripts/gen_fixtures.py
 
 ### TC-011: `dem_85pct_nodata.tif`
 - **Purpose**: Test warning for high nodata percentage
-- **NoData coverage**: ~84% (336/400 pixels)
-- **Valid region**: Bottom-right 8×8 corner
+- **NoData coverage**: 84% (336/400 pixels)
+- **Valid region**: Bottom-right 8×8 corner (64 valid pixels)
+- **Note**: Named "85pct" for threshold testing (>80% triggers warning)
 - **Expected**: Loads successfully, logs WARNING
 
 ### TC-012/TC-018: `dem_large.tif`
