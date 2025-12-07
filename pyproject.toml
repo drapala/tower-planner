@@ -60,3 +60,7 @@ pythonpath = ["src", "domain"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+markers = [
+    "integration: marks tests as integration tests (require real dependencies)",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]

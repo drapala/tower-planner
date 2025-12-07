@@ -8,7 +8,7 @@ See spec/features/FEAT-001-load-dem.md for complete specifications.
 
 from __future__ import annotations
 
-from typing import Tuple
+import warnings
 
 import numpy as np
 from numpy.typing import NDArray
@@ -52,18 +52,53 @@ class BoundingBox(BaseModel):
             )
         return self
 
-    def is_valid(self) -> bool:  # pragma: no cover - trivial method
-        """Return True because construction enforces validity."""
+    def is_valid(self) -> bool:  # pragma: no cover - deprecated, always True
+        """Check if this BoundingBox is valid.
+
+        .. deprecated:: 1.0
+            This method is deprecated and scheduled for removal in v2.0.
+            Rely on construction-time validation instead - if you have a BoundingBox
+            instance, it is already guaranteed to be valid.
+
+        Always returns True because Pydantic validation at construction time
+        guarantees that invalid BoundingBox instances cannot exist.
+
+        Returns:
+            True: Always, since construction-time validation enforces invariants.
+
+        Note:
+            This method performs no runtime checks. All validation occurs in
+            the @model_validator during __init__. Prefer catching ValueError
+            during construction rather than calling is_valid() after.
+
+        Migration:
+            Remove all calls to `is_valid()`. If you have a BoundingBox instance,
+            it is already valid. Handle construction failures with try/except ValueError.
+        """
+        # TODO(v2.0): Remove this method in next major version.
+        # Tracking: See CHANGELOG.md deprecation notice and upgrade guide.
+        # When removing: Also delete tests that call is_valid() or update them
+        # to verify the deprecation warning is raised.
+        warnings.warn(
+            "BoundingBox.is_valid() is deprecated and will be removed in v2.0; "
+            "rely on construction-time validation",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return True
 
 
 class TerrainGrid(BaseModel):
-    """Immutable elevation grid with geographic metadata (Value Object)."""
+    """Immutable elevation grid with geographic metadata (Value Object).
 
-    data: NDArray[np.float32]  # 2D float32 array (height x width)
+    The data array is made truly immutable (read-only) at construction time.
+    Attempts to modify the array after construction will raise ValueError.
+    """
+
+    data: NDArray[np.float32]  # 2D float32 array (height x width), read-only
     bounds: BoundingBox  # Geographic extent in EPSG:4326
     crs: str  # Always "EPSG:4326" (system CRS)
-    resolution: Tuple[float, float]  # (x_res, y_res) absolute values in degrees
+    resolution: tuple[float, float]  # (x_res, y_res) absolute values in degrees
     source_crs: str | None = None  # Original CRS before normalization
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
@@ -85,7 +120,16 @@ class TerrainGrid(BaseModel):
         # Resolution positive (absolute)
         if self.resolution[0] <= 0 or self.resolution[1] <= 0:
             raise ValueError(f"Resolution must be positive: {self.resolution}")
-        # At least one valid pixel
-        if not np.any(~np.isnan(self.data)):
+        # At least one valid pixel - .all() short-circuits and avoids extra negation allocation
+        if np.isnan(self.data).all():
             raise ValueError("Grid contains 100% NoData")
+
+        # Make array truly immutable without mutating external arrays:
+        # Always create an OWNED, contiguous float32 copy and freeze it. This
+        # guarantees that the Value Object never changes caller-provided arrays
+        # (no in-place flag flips) while enforcing dtype and contiguity.
+        immutable = np.array(self.data, dtype=np.float32, copy=True, order="C")
+        immutable.flags.writeable = False
+        object.__setattr__(self, "data", immutable)
+
         return self
