@@ -89,15 +89,14 @@ class GeoTiffTerrainAdapter:
     def load_dem(self, file_path: Path | str) -> TerrainGrid:
         """Load DEM from GeoTIFF and return normalized TerrainGrid.
 
-        Follows FEAT-001 behavior and invariants. This is a skeleton to be
-        completed via TDD per CLAUDE.md.
+        Implements FEAT-001 behavior and invariants.
         """
         path = Path(file_path)
 
         # Check existence first to ensure missing files surface as FileNotFoundError
         if not path.exists():
-            # Raise with full path to aid debugging; callers must sanitize logs per SEC-7
-            raise FileNotFoundError(str(path))
+            # SEC-7: Raise with filename only to avoid leaking full path
+            raise FileNotFoundError(path.name)
 
         # SEC-10: Extension allowlist - reject non-GeoTIFF for existing files
         if path.suffix.lower() not in (".tif", ".tiff"):
@@ -112,8 +111,14 @@ class GeoTiffTerrainAdapter:
                 # SPEC TC-010: Use precise message for empty file
                 raise InvalidRasterError("Empty file")
             # PERF-7: Pre-flight size check - fail fast before rasterio allocation
-            # File size is typically larger than final float32 grid, but if file
-            # exceeds 2x budget, it's certainly too large
+            # The 2x multiplier is a conservative heuristic:
+            # - Uncompressed GeoTIFF file size ≈ width × height × bytes_per_pixel
+            # - Compressed files (LZW, DEFLATE) can be much smaller than the
+            #   uncompressed float32 grid we'll allocate (width × height × 4)
+            # - Using 2x as threshold means we only reject files that are clearly
+            #   oversized even in worst-case (uncompressed multi-byte formats)
+            # - Files smaller than 2x budget may still fail the actual grid size
+            #   check after metadata is read (see PERF-7 check in same-CRS path)
             if self.max_bytes is not None and st.st_size > self.max_bytes * 2:
                 raise InsufficientMemoryError(
                     f"File size {st.st_size}B exceeds 2x memory budget {self.max_bytes}B"
@@ -178,17 +183,26 @@ class GeoTiffTerrainAdapter:
 
                         # Convert nodata -> NaN: handle both masked arrays and explicit nodata
                         # Use np.float32(np.nan) to preserve dtype without upcasting
-                        if hasattr(data, "mask") and np.any(data.mask):
-                            # Masked array: convert masked values to NaN
-                            data = np.where(data.mask, np.float32(np.nan), data.data)
+                        # Optimization: avoid np.where allocation when no conversion is needed
+                        if hasattr(data, "mask"):
+                            if np.any(data.mask):
+                                # Masked array with masked values: convert to NaN
+                                data = np.where(
+                                    data.mask, np.float32(np.nan), data.data
+                                )
+                            else:
+                                # Masked array but no masked values: extract underlying data
+                                data = data.data
                         elif src.nodata is not None:
                             # Plain array with explicit nodata value: convert to NaN.
-                            # Exact equality is intentional: GeoTIFF nodata is stored as an
-                            # exact value in file metadata, and rasterio preserves it precisely.
-                            # Using tolerance could incorrectly mark valid near-nodata values.
-                            data = np.where(
-                                data == src.nodata, np.float32(np.nan), data
-                            )
+                            # Handle both regular nodata values and NaN nodata markers
+                            if np.isnan(src.nodata):
+                                nodata_mask = np.isnan(data)
+                            else:
+                                # Exact equality for non-NaN: GeoTIFF nodata is stored precisely
+                                nodata_mask = data == src.nodata
+                            if np.any(nodata_mask):
+                                data = np.where(nodata_mask, np.float32(np.nan), data)
 
                         # All NoData in same-CRS path
                         if not np.any(~np.isnan(data)):
@@ -324,8 +338,9 @@ class GeoTiffTerrainAdapter:
                     )
 
         except PermissionError as e:
-            # Re-raise with filename only to avoid leaking full path in logs
-            raise PermissionError(path.name) from e
+            # Re-raise with filename and original message (SEC-7: avoid full path)
+            original_msg = e.strerror or str(e) or "Permission denied"
+            raise PermissionError(f"{path.name}: {original_msg}") from e
         except (rasterio.errors.RasterioIOError, rasterio.errors.RasterioError) as e:
             raise InvalidRasterError(f"Corrupted or invalid raster: {e}") from e
         except MemoryError as e:

@@ -27,8 +27,8 @@ def pytest_configure(config: pytest.Config) -> None:
     stubs_path = (Path(__file__).parent / "stubs").resolve()
     stubs_str = str(stubs_path)
 
-    # Compare resolved paths to detect duplicates robustly
-    # (handles symlinks, relative vs absolute, trailing slashes)
+    # Compare resolved paths to detect duplicates (Path.resolve() handles symlinks,
+    # relative paths, and normalization)
     resolved_sys_paths = {str(Path(p).resolve()) for p in sys.path if p}
 
     # Insert at beginning to take precedence over real packages

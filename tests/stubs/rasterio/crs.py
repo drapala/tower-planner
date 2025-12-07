@@ -29,12 +29,24 @@ class CRS:
 
     def to_string(self) -> str:
         """Return string representation."""
-        if self._epsg:
+        if self._epsg is not None:
             return f"EPSG:{self._epsg}"
         return str(self._data)
 
     def __eq__(self, other: object) -> bool:
-        """Compare CRS objects by EPSG code, falling back to data comparison."""
+        """Compare CRS objects for equality.
+
+        Comparison strategy (in order):
+        1. If both have EPSG codes, compare by EPSG code only
+        2. If exactly one has EPSG and the other doesn't, return False
+           (asymmetric: no attempt to resolve EPSG from data)
+        3. If neither has EPSG, fall back to _data dict comparison
+
+        Limitation: A CRS created with from_epsg(4326) will NOT equal a CRS
+        created with data={'proj': 'longlat', ...} even if semantically
+        equivalent, because one has _epsg=4326 and the other has _epsg=None.
+        This stub prioritizes simplicity over semantic equivalence.
+        """
         if not isinstance(other, CRS):
             return NotImplemented
         # If both have EPSG codes, compare those
@@ -63,5 +75,5 @@ class CRS:
         # Fallback: hash a frozenset of items for stability
         try:
             return hash(("data", frozenset(self._data.items())))
-        except Exception:
+        except TypeError:
             return hash(("data_str", str(self._data)))

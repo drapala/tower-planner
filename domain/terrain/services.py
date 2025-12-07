@@ -67,7 +67,8 @@ def geodesic_distance(start: GeoPoint, end: GeoPoint) -> float:
     _, _, distance = _geod.inv(
         start.longitude, start.latitude, end.longitude, end.latitude
     )
-    return float(abs(distance))  # Ensure positive, explicit float
+    # Geod.inv() already returns non-negative distance; cast to float for type safety
+    return float(distance)
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +176,8 @@ def bilinear_interpolate(grid: TerrainGrid, point: GeoPoint) -> tuple[float, boo
     """
     # Convert point to fractional pixel coordinates
     # Note: row 0 = north edge (max_y), so y is inverted
+    # FP imprecision: boundary coordinates may produce tiny negatives (e.g., -1e-15)
+    # or slight overflows even if is_within_bounds passed; clamping below corrects this
     px = (point.longitude - grid.bounds.min_x) / grid.resolution[0]
     py = (grid.bounds.max_y - point.latitude) / grid.resolution[1]
 
@@ -186,7 +189,7 @@ def bilinear_interpolate(grid: TerrainGrid, point: GeoPoint) -> tuple[float, boo
     x1 = x0 + 1
     y1 = y0 + 1
 
-    # Clamp to valid grid indices
+    # Clamp to valid grid indices to handle FP boundary imprecision
     # When x0 == x1 or y0 == y1, bilinear degrades to linear/nearest
     x0 = max(0, min(x0, width - 1))
     x1 = max(0, min(x1, width - 1))
@@ -278,9 +281,13 @@ def terrain_profile(
         step_m = derive_step_m(grid, start, end)
 
     # Calculate number of samples: n = max(2, floor(total / step) + 1)
+    # - floor(total / step) + 1 distributes samples with roughly 'step' spacing
+    # - max(2, ...) enforces at least two samples (start and end) for any path
     n_samples = max(2, int(math.floor(total_distance / step_m)) + 1)
 
-    # Calculate effective step (actual average spacing)
+    # Calculate effective step (actual average spacing between samples)
+    # - Divides by (n_samples - 1) because n samples create (n-1) intervals
+    # - When n_samples == 2, this equals total_distance (single interval from start to end)
     effective_step = total_distance / (n_samples - 1)
 
     # Generate path points: n_samples - 2 intermediate points (excludes start and end)
@@ -291,14 +298,21 @@ def terrain_profile(
     samples: list[ProfileSample] = []
     has_nodata = False
 
+    # Compute cumulative geodesic distances to avoid drift from i * effective_step
+    # For long paths, multiplying index by step can accumulate floating-point error
+    cumulative_distance = 0.0
+
     for i, point in enumerate(path_points):
-        # Calculate cumulative distance
+        # Calculate cumulative distance using true geodesic between successive points
         if i == 0:
             distance = 0.0
         elif i == len(path_points) - 1:
+            # Explicitly set last sample to total_distance to avoid rounding drift
             distance = total_distance
         else:
-            distance = i * effective_step
+            # Accumulate geodesic distance from previous point
+            cumulative_distance += geodesic_distance(path_points[i - 1], point)
+            distance = cumulative_distance
 
         # Interpolate elevation
         elevation, is_nodata = bilinear_interpolate(grid, point)

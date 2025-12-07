@@ -535,16 +535,16 @@ def test_invalid_bounds_raise(monkeypatch, tmp_path):
 # =============================================================================
 # SEC-10: Extension Allowlist Tests
 # =============================================================================
-def test_sec10_rejects_png_extension(tmp_path):
-    """SEC-10: For non-existent files, existence check triggers first (FileNotFoundError)."""
+def test_sec10_nonexistent_png_raises_file_not_found(tmp_path):
+    """SEC-10: Non-existent .png file raises FileNotFoundError (existence check first)."""
     p = tmp_path / "image.png"
     adapter = GeoTiffTerrainAdapter()
     with pytest.raises(FileNotFoundError):
         adapter.load_dem(p)
 
 
-def test_sec10_rejects_jpg_extension(tmp_path):
-    """SEC-10: For non-existent files, existence check triggers first (FileNotFoundError)."""
+def test_sec10_nonexistent_jpg_raises_file_not_found(tmp_path):
+    """SEC-10: Non-existent .jpg file raises FileNotFoundError (existence check first)."""
     p = tmp_path / "image.jpg"
     adapter = GeoTiffTerrainAdapter()
     with pytest.raises(FileNotFoundError):

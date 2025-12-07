@@ -23,8 +23,13 @@ def array_bounds(
         Tuple of (minx, miny, maxx, maxy) bounds
 
     Raises:
+        ValueError: If width or height is non-positive
         TypeError: If transform does not support multiplication with (col, row) tuple
     """
+    # Validate dimensions
+    if width <= 0 or height <= 0:
+        raise ValueError("width and height must be positive")
+
     try:
         left, top = transform * (0, 0)  # type: ignore[operator]
         right, bottom = transform * (width, height)  # type: ignore[operator]

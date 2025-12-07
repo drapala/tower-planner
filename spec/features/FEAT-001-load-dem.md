@@ -610,7 +610,7 @@ about future native kernels (C++/Rust).
 - **PERF-3**: Memory budget is `width × height × 4` bytes for float32.
 - **PERF-5**: Significant regressions should block merge and require investigation.
 - **PERF-6**: Same-file concurrent reads are OS-dependent (file locking); use separate handles or process parallelism.
-- **PERF-7**: ✅ Implemented - checks `st_size > max_bytes * 2` before opening with rasterio.
+- **PERF-7**: Checks `st_size > max_bytes * 2` before opening with rasterio.
 
 ---
 
@@ -625,20 +625,47 @@ and unintended behavior in CI/cluster environments.
 | SEC-2 | Corrupted files raise `InvalidRasterError` immediately | Fail fast; no partial processing of malformed data |
 | SEC-3 | Oversized files raise `InsufficientMemoryError` | Prevent OOM crashes via pre-allocation budget check |
 | SEC-4 | Use `rasterio.Env()` for PROJ isolation | Prevent environment variable leakage between threads |
-| SEC-5 | No symlink traversal outside sandbox | Adapter should not follow symlinks without explicit validation |
+| SEC-5 | Symlink handling (configurable) | Reject or validate symlinks based on configuration |
 | SEC-6 | Reject non-GeoTIFF extensions | Files like `.png`, `.jpg`, `.bin` must raise `InvalidRasterError` |
 | SEC-7 | No sensitive paths in logs | Avoid info leakage; log only filenames, not full paths |
 | SEC-8 | Thread-safe (no global state) | Safe for multithreaded execution |
 | SEC-9 | No silent failure masking | Every inconsistency must raise a specific exception |
-| SEC-10 | Extension allowlist | Only `.tif`/`.tiff` extensions accepted; others raise `InvalidRasterError` |
+| SEC-10 | Extension allowlist (configurable) | By default only `.tif`/`.tiff` accepted; can be relaxed |
+
+### Security Configuration Options
+
+The adapter accepts optional security configuration:
+
+```python
+class SecurityConfig:
+    """Security policy configuration for GeoTiffTerrainAdapter."""
+
+    # SEC-5: Symlink handling
+    allow_symlinks: bool = False           # If True, symlinks are allowed
+    base_dir: Path | None = None           # If set, symlinks must resolve inside this directory
+
+    # SEC-10: Extension validation
+    enforce_extension_check: bool = True   # If False, rely on rasterio driver detection only
+```
 
 ### Security Notes
 
 - **SEC-1**: All raster operations use rasterio's Python API only.
-- **SEC-5**: ✅ Implemented - explicit symlink rejection (adapter raises `InvalidRasterError("Symlinks are not permitted")`).
+
+- **SEC-5 (Symlink Handling)**:
+  - **Default (strict)**: `allow_symlinks=False` — rejects all symlinks with `InvalidRasterError("Symlinks are not permitted")`.
+  - **Relaxed with validation**: `allow_symlinks=True, base_dir=/path/to/sandbox` — symlinks are allowed only if the resolved absolute target (`Path.resolve()`) is inside the specified base directory. Validation uses `Path(resolved).is_relative_to(base_dir)` (Python 3.9+). Raises `InvalidRasterError("Symlink target outside allowed directory")` if target escapes.
+  - **Relaxed (no validation)**: `allow_symlinks=True, base_dir=None` — symlinks followed without restriction. **Use only in trusted environments.**
+
 - **SEC-6**: Extension validation is implicit via rasterio driver detection; explicit check may be added.
-- **SEC-7**: ✅ Implemented - logging uses `path.name` (filename only) and avoids embedding absolute paths; stat errors log only filename, errno, and strerror.
-- **SEC-10**: ✅ Implemented - explicit extension check before processing (`.tif`, `.tiff` only).
+
+- **SEC-7**: Logging uses `path.name` (filename only) and avoids embedding absolute paths; stat errors log only filename, errno, and strerror.
+
+- **SEC-10 (Extension Allowlist)**:
+  - **Default (strict)**: `enforce_extension_check=True` — only `.tif`/`.tiff` extensions accepted; others raise `InvalidRasterError` before opening.
+  - **Relaxed**: `enforce_extension_check=False` — adapter relies on rasterio's driver/header detection. If rasterio cannot open the file as a valid GeoTIFF, raises `InvalidRasterError`. Useful for files with non-standard extensions that are actually valid GeoTIFFs.
+
+- **Compliance Documentation**: When stricter policies (default) are enabled, document this in deployment configuration for security audits.
 
 ---
 
@@ -710,7 +737,10 @@ Include a `tests/fixtures/README.md` or script (e.g., `scripts/gen_fixtures.py`)
 - [ ] Type hints complete and mypy passes
 - [ ] Docstring with examples
 - [ ] Performance within baseline (non-blocking)
-- [ ] Symlinks are rejected with `InvalidRasterError`
+- [x] SEC-5: Symlinks rejected with `InvalidRasterError("Symlinks are not permitted")`
+- [x] SEC-7: Logging uses `path.name` only (no absolute paths in logs)
+- [x] SEC-10: Extension allowlist enforced (`.tif`/`.tiff` only)
+- [x] PERF-7: Pre-flight size check (`st_size > max_bytes * 2`)
 
 ---
 

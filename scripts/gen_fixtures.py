@@ -187,36 +187,36 @@ def gen_dem_utm23s() -> None:
 # TC-004: NoData Conversion
 # =============================================================================
 def gen_dem_with_nodata() -> None:
-    """Generate 100x100 DEM with defined nodata value and masked region.
+    """Generate 20x20 DEM with defined nodata value and masked region.
 
-    - Uses STANDARD bounds (same as dem_100x100_4326.tif)
+    - Uses STANDARD bounds (same coverage as dem_100x100_4326.tif but lower res)
     - nodata = -9999
     - Diagonal stripe of NoData from top-left to bottom-right (~10% pixels)
     - Ensures any path across the grid will cross NoData
     """
     path = FIXTURES_DIR / "dem_with_nodata.tif"
-    height, width = 100, 100
+    height, width = 20, 20
     nodata = -9999.0
 
     # Create elevation data with gradient
     data = np.linspace(50, 500, height * width, dtype=np.float32).reshape(height, width)
 
-    # Create diagonal NoData stripe (10 pixels wide)
+    # Create diagonal NoData stripe (2 pixels wide for 20x20 grid)
     # This ensures profiles crossing the grid hit NoData
     for i in range(height):
-        start_col = max(0, i - 5)
-        end_col = min(width, i + 5)
+        start_col = max(0, i - 1)
+        end_col = min(width, i + 2)
         data[i, start_col:end_col] = nodata
 
     # Standard bounds: lat [-25, -15], lon [-50, -40]
-    # Resolution: 0.1 degrees per pixel
-    transform = Affine.translation(STD_MIN_LON, STD_MAX_LAT) * Affine.scale(0.1, -0.1)
+    # Resolution: 0.5 degrees per pixel (10 degrees / 20 pixels)
+    transform = Affine.translation(STD_MIN_LON, STD_MAX_LAT) * Affine.scale(0.5, -0.5)
 
     write_raster(path, data, transform, crs=CRS.from_epsg(4326), nodata=nodata)
 
     nodata_pct = 100 * (np.sum(data == nodata) / data.size)
     print(
-        f"  Created: {path.name} (100x100, EPSG:4326, {nodata_pct:.0f}% nodata diagonal)"
+        f"  Created: {path.name} (20x20, EPSG:4326, {nodata_pct:.0f}% nodata diagonal)"
     )
 
 
@@ -287,15 +287,15 @@ def gen_rgb_image() -> None:
 # TC-009: Bit-exact for same CRS
 # =============================================================================
 def gen_dem_known_values_4326() -> None:
-    """Generate 100x100 DEM with known pixel values for bit-exact testing.
+    """Generate 20x20 DEM with known pixel values for bit-exact testing.
 
-    - Uses STANDARD bounds (same as dem_100x100_4326.tif)
+    - Uses STANDARD bounds (same coverage as dem_100x100_4326.tif but lower res)
     - Known values at specific pixels for interpolation verification
     - float32 dtype
     - Used for FEAT-002 TC-010 (bilinear interpolation)
     """
     path = FIXTURES_DIR / "dem_known_values_4326.tif"
-    height, width = 100, 100
+    height, width = 20, 20
 
     # Create gradient data as base
     data = np.linspace(100, 500, height * width, dtype=np.float32).reshape(
@@ -303,45 +303,45 @@ def gen_dem_known_values_4326() -> None:
     )
 
     # Add some known values at specific locations
-    data[50, 50] = 150.5  # Center
+    data[10, 10] = 150.5  # Center
     data[0, 0] = 100.0  # Top-left (north-west)
-    data[99, 99] = 500.0  # Bottom-right (south-east)
+    data[19, 19] = 500.0  # Bottom-right (south-east)
 
     # Standard bounds: lat [-25, -15], lon [-50, -40]
-    # Resolution: 0.1 degrees per pixel
-    transform = Affine.translation(STD_MIN_LON, STD_MAX_LAT) * Affine.scale(0.1, -0.1)
+    # Resolution: 0.5 degrees per pixel (10 degrees / 20 pixels)
+    transform = Affine.translation(STD_MIN_LON, STD_MAX_LAT) * Affine.scale(0.5, -0.5)
 
     write_raster(path, data, transform, crs=CRS.from_epsg(4326))
-    print(f"  Created: {path.name} (100x100, known values, float32, standard bounds)")
+    print(f"  Created: {path.name} (20x20, known values, float32, standard bounds)")
 
 
 # =============================================================================
 # TC-009b: Same CRS, non-float32 source
 # =============================================================================
 def gen_dem_known_values_4326_int16() -> None:
-    """Generate 100x100 DEM with known values in int16 dtype.
+    """Generate 20x20 DEM with known values in int16 dtype.
 
-    - Uses STANDARD bounds (same as dem_100x100_4326.tif)
+    - Uses STANDARD bounds (same coverage as dem_100x100_4326.tif but lower res)
     - Known values at specific pixels
     - int16 dtype - tests dtype conversion path
     """
     path = FIXTURES_DIR / "dem_known_values_4326_int16.tif"
-    height, width = 100, 100
+    height, width = 20, 20
 
     # Create gradient data as base
     data = np.linspace(100, 500, height * width, dtype=np.int16).reshape(height, width)
 
     # Add some known values at specific locations
-    data[50, 50] = 150  # Center
+    data[10, 10] = 150  # Center
     data[0, 0] = 100  # Top-left
-    data[99, 99] = 500  # Bottom-right
+    data[19, 19] = 500  # Bottom-right
 
     # Standard bounds: lat [-25, -15], lon [-50, -40]
-    # Resolution: 0.1 degrees per pixel
-    transform = Affine.translation(STD_MIN_LON, STD_MAX_LAT) * Affine.scale(0.1, -0.1)
+    # Resolution: 0.5 degrees per pixel (10 degrees / 20 pixels)
+    transform = Affine.translation(STD_MIN_LON, STD_MAX_LAT) * Affine.scale(0.5, -0.5)
 
     write_raster(path, data, transform, crs=CRS.from_epsg(4326), dtype="int16")
-    print(f"  Created: {path.name} (100x100, known values, int16, standard bounds)")
+    print(f"  Created: {path.name} (20x20, known values, int16, standard bounds)")
 
 
 # =============================================================================

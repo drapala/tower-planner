@@ -65,5 +65,3 @@ class PointOutOfBoundsError(TerrainError):
 
 class InvalidProfileError(TerrainError):
     """Profile parameters are invalid."""
-
-    pass

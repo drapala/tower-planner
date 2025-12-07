@@ -210,7 +210,7 @@ siting/          →    siting/ + constraints/ + regulations/
 - Place domain logic in utility functions
 - Place domain logic in infrastructure classes (GIS I/O, file readers)
 - Create "god" services that span multiple bounded contexts
-- Expose external library exceptions (e.g., `rasterio.errors`) to the domain. **Always wrap** in Domain Exceptions.
+- Never expose external library exceptions (e.g., `rasterio.errors`) to the domain. Always wrap them in Domain Exceptions.
 
 ### Protocols for Ports:
 
@@ -451,7 +451,6 @@ isort domain/ src/ tests/
 
 - Validate all external inputs at system boundaries
 - Use parameterized queries if any database interaction is added
-- Log security-relevant operations
 - Log security-relevant operations
 - Document any assumptions made
 
@@ -821,22 +820,34 @@ def gen_dem_nan_transform():
     # Actually creates valid file...
 ```
 
-### Import Path Consistency for Monkeypatching
+### Import Path Consistency
 
-- **Monkeypatch paths must match import paths**: Python creates different module objects for different import paths
-- **Same file, different paths = different modules**: `import a.b.c` and `import x.b.c` create separate module objects
-- **Patch the same path you import**: If test imports `src.infrastructure.X`, patch `src.infrastructure.X.func`
+This rule has two related consequences: (1) monkeypatch paths must match import paths, and (2) avoid mixing import styles within a codebase.
+
+**Why it matters**: Python creates different module objects for different import paths. `import a.b.c` and `import x.b.c` (even if they resolve to the same file) create separate module objects in `sys.modules`.
+
+**Rule 1 — Monkeypatch paths must match import paths**:
+- Patch the same path you import
+- If test imports `src.infrastructure.X`, patch `src.infrastructure.X.func`
+
+**Rule 2 — Use consistent import style**:
+- Don't mix `src.infrastructure.*` with `infrastructure.*`
+- Pick one convention and stick to it across the codebase
 
 ```python
 # Project structure with PYTHONPATH=src:.
 # domain/terrain/errors.py        -> import as domain.terrain.errors
 # src/infrastructure/terrain/x.py -> import as src.infrastructure.terrain.x
 
-# Good - consistent paths
+# Good - consistent paths (both import and patch use same prefix)
 from src.infrastructure.terrain.geotiff_adapter import GeoTiffTerrainAdapter
 monkeypatch.setattr("src.infrastructure.terrain.geotiff_adapter.reproject", fake)
 
-# Bad - different paths create different module objects
+# Good - alternative consistent style (no src. prefix)
+from infrastructure.terrain.geotiff_adapter import GeoTiffTerrainAdapter
+monkeypatch.setattr("infrastructure.terrain.geotiff_adapter.reproject", fake)
+
+# Bad - inconsistent paths create different module objects
 from infrastructure.terrain.geotiff_adapter import GeoTiffTerrainAdapter  # via 'src' in path
 monkeypatch.setattr("src.infrastructure.terrain.geotiff_adapter.reproject", fake)  # patches DIFFERENT module!
 ```
@@ -1147,20 +1158,9 @@ sys.path = [p for p in sys.path if p != stubs_path]  # New list!
 
 ### Import Path Consistency
 
-- **Use consistent import style**: Don't mix `src.infrastructure.*` with `domain.*`
-- **Prefer package-relative imports**: `infrastructure.*` over `src.infrastructure.*`
-- **Monkeypatch paths must match imports**: Inconsistent paths break monkeypatching
-
-```python
-# Good - consistent style (both use package name directly)
-from domain.terrain.errors import AllNoDataError
-from infrastructure.terrain.geotiff_adapter import GeoTiffTerrainAdapter
-monkeypatch.setattr("infrastructure.terrain.geotiff_adapter.reproject", fake)
-
-# Bad - inconsistent style
-from domain.terrain.errors import AllNoDataError  # No prefix
-from src.infrastructure.terrain.geotiff_adapter import GeoTiffTerrainAdapter  # Has src. prefix
-```
+> **See**: [Import Path Consistency](#import-path-consistency) in Code Review Patterns section above.
+>
+> Summary: (1) Monkeypatch paths must match import paths, (2) use consistent import style across codebase.
 
 ### Variable Naming Clarity
 

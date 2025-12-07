@@ -1,1 +1,7 @@
+# Core dependencies - keep in sync with pyproject.toml [project.dependencies]
+# Recommended: use pyproject.toml as single source of truth via `pip install -e .`
+# This file exists for tools that require requirements.txt format.
 pydantic>=2.0.0
+numpy>=2.2.0,<3.0.0
+rasterio>=1.4.3,<2.0.0
+pyproj>=3.7.0,<4.0.0

@@ -14,7 +14,6 @@ Fixture Bounds Reference:
 from __future__ import annotations
 
 import math
-from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -94,6 +93,36 @@ def create_test_grid_large() -> TerrainGrid:
         bounds=bounds,
         crs="EPSG:4326",
         resolution=(0.02, 0.02),
+        source_crs="EPSG:4326",
+    )
+
+
+def create_test_grid_high_latitude() -> TerrainGrid:
+    """Create test grid at high latitude for geodesic step derivation testing.
+
+    Bounds: lat [79.5, 80.5], lon [0, 1]
+    Resolution: 0.001 degrees (fine resolution to test geodesic scaling)
+
+    At 80° latitude, 0.001° longitude ≈ 19m (vs 111m at equator).
+    This tests that derive_step_m() correctly uses geodesic measurement
+    rather than naive cos(lat) approximation.
+    """
+    height, width = 1000, 1000
+    # Simple gradient elevation - content doesn't matter for step derivation test
+    data = np.linspace(0, 100, height * width, dtype=np.float32).reshape(height, width)
+
+    bounds = BoundingBox(
+        min_x=0.0,  # West
+        max_x=1.0,  # East
+        min_y=79.5,  # South
+        max_y=80.5,  # North
+    )
+
+    return TerrainGrid(
+        data=data,
+        bounds=bounds,
+        crs="EPSG:4326",
+        resolution=(0.001, 0.001),
         source_crs="EPSG:4326",
     )
 
@@ -290,18 +319,18 @@ def test_terrain_profile_short_path_minimum_samples():
 # ===========================================================================
 @pytest.mark.slow
 def test_terrain_profile_long_path():
-    """TC-008: Long profile within extended bounds (~450km diagonal)."""
+    """TC-008: Long profile within extended bounds (~1300km diagonal)."""
     from domain.terrain.services import terrain_profile
 
     grid = create_test_grid_large()
-    # Bounds: lat [-26, -14], lon [-51, -39]
+    # Bounds: lat [-26, -14], lon [-51, -39] (extended bounds)
     start = GeoPoint(latitude=-15.0, longitude=-50.0)
-    end = GeoPoint(latitude=-25.0, longitude=-40.0)  # ~450km diagonal
+    end = GeoPoint(latitude=-25.0, longitude=-40.0)  # ~1300km diagonal
 
     profile = terrain_profile(grid, start, end)
 
     assert len(profile.samples) > 100
-    assert profile.total_distance_m > 400_000  # >400km
+    assert profile.total_distance_m > 1_000_000  # >1000km
 
 
 # ===========================================================================
@@ -345,6 +374,8 @@ def test_terrain_profile_uses_bilinear():
 # ===========================================================================
 def test_terrain_profile_is_immutable():
     """TC-011: TerrainProfile should be immutable (frozen Pydantic model)."""
+    from pydantic import ValidationError
+
     from domain.terrain.services import terrain_profile
 
     grid = create_test_grid_standard()
@@ -353,7 +384,7 @@ def test_terrain_profile_is_immutable():
 
     profile = terrain_profile(grid, start, end)
 
-    with pytest.raises(Exception):  # ValidationError or AttributeError
+    with pytest.raises(ValidationError):  # Pydantic frozen models raise ValidationError
         profile.total_distance_m = 0
 
 
@@ -465,21 +496,20 @@ def test_terrain_profile_point_on_corner():
 # TC-017: High Latitude Step Derivation
 # ===========================================================================
 def test_terrain_profile_high_latitude_step():
-    """TC-017: At high latitudes, step_m should still be derived correctly via geodesic."""
+    """TC-017: At high latitudes, step_m should still be derived correctly via geodesic.
+
+    Uses real TerrainGrid (not MagicMock) to test full integration of
+    derive_step_m() with geodesic measurement at extreme latitudes.
+    """
     from domain.terrain.services import MIN_STEP_M, derive_step_m
 
-    # Create mock grid with high-latitude bounds
-    mock_grid = MagicMock()
-    mock_grid.resolution = (0.001, 0.001)  # ~0.001 degrees
-    mock_grid.bounds.min_x = 0
-    mock_grid.bounds.max_x = 1
-    mock_grid.bounds.min_y = 79.5
-    mock_grid.bounds.max_y = 80.5
+    # Create real high-latitude grid (not mock)
+    grid = create_test_grid_high_latitude()
 
     start = GeoPoint(latitude=80.0, longitude=0.5)
     end = GeoPoint(latitude=80.0, longitude=0.6)
 
-    step = derive_step_m(mock_grid, start, end)
+    step = derive_step_m(grid, start, end)
 
     # Should be >= MIN_STEP_M even at high latitude
     assert step >= MIN_STEP_M
@@ -722,11 +752,15 @@ class TestGeoPointInvariants:
 
     def test_geopoint_immutable(self):
         """GeoPoint should be immutable (frozen)."""
+        from pydantic import ValidationError
+
         from domain.terrain.value_objects import GeoPoint
 
         point = GeoPoint(latitude=-20.0, longitude=-45.0)
 
-        with pytest.raises(Exception):  # ValidationError or AttributeError
+        with pytest.raises(
+            ValidationError
+        ):  # Pydantic frozen models raise ValidationError
             point.latitude = 0.0
 
 

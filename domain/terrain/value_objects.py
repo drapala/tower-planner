@@ -128,7 +128,10 @@ class TerrainGrid(BaseModel):
         # Resolution positive (absolute)
         if self.resolution[0] <= 0 or self.resolution[1] <= 0:
             raise ValueError(f"Resolution must be positive: {self.resolution}")
-        # At least one valid pixel - .all() short-circuits and avoids extra negation allocation
+        # At least one valid pixel - np.isnan(self.data) allocates a boolean mask,
+        # but using .all() avoids allocating a second negated mask (e.g., ~mask).
+        # Alternative: np.all(np.isnan(...)) is equivalent; for zero-allocation check
+        # consider math.isnan on a sample or np.nanmin which returns nan if all nan.
         if np.isnan(self.data).all():
             raise ValueError("Grid contains 100% NoData")
 
@@ -181,7 +184,7 @@ class ProfileSample(BaseModel):
         PS-3: If is_nodata == False, then elevation_m is finite
         PS-4: point is valid GeoPoint
 
-    Note: Uses math.isnan instead of np.isnan to avoid numpy dependency in simple VO.
+    Note: Uses math.isfinite/isnan instead of numpy to avoid numpy dependency in simple VO.
     """
 
     distance_m: float = Field(ge=0)  # Cumulative distance from start in meters
@@ -194,10 +197,10 @@ class ProfileSample(BaseModel):
     @model_validator(mode="after")
     def validate_nodata_consistency(self) -> "ProfileSample":
         """Validate consistency between is_nodata flag and elevation_m."""
-        # Use math.isnan to avoid numpy dependency in simple VO
+        # Use math.isfinite/isnan to avoid numpy dependency in simple VO
         if self.is_nodata and not math.isnan(self.elevation_m):
             raise ValueError("is_nodata=True requires elevation_m=NaN")
-        if not self.is_nodata and math.isnan(self.elevation_m):
+        if not self.is_nodata and not math.isfinite(self.elevation_m):
             raise ValueError("is_nodata=False requires finite elevation_m")
         return self
 
@@ -249,9 +252,9 @@ class TerrainProfile(BaseModel):
             raise ValueError(f"Profile must have >= 2 samples, got {len(self.samples)}")
 
         # TP-2: First sample at distance 0
-        if self.samples[0].distance_m != 0:
+        if abs(self.samples[0].distance_m) > DISTANCE_TOLERANCE_M:
             raise ValueError(
-                f"First sample must be at distance 0, got {self.samples[0].distance_m}"
+                f"First sample must be at distance 0 (within tolerance), got {self.samples[0].distance_m}"
             )
 
         # TP-3: Samples ordered by distance (strictly increasing)

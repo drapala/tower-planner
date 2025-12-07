@@ -174,10 +174,10 @@ class ProfileSample(BaseModel):
 
     @model_validator(mode="after")
     def validate_nodata_consistency(self) -> "ProfileSample":
-        # Use math.isnan to avoid numpy dependency in simple VO
+        # Use math.isfinite/isnan to avoid numpy dependency in simple VO
         if self.is_nodata and not math.isnan(self.elevation_m):
             raise ValueError("is_nodata=True requires elevation_m=NaN")
-        if not self.is_nodata and math.isnan(self.elevation_m):
+        if not self.is_nodata and not math.isfinite(self.elevation_m):
             raise ValueError("is_nodata=False requires finite elevation_m")
         return self
 ```
@@ -188,12 +188,12 @@ class ProfileSample(BaseModel):
 |----|-----------|-------------|
 | PS-1 | `distance_m >= 0` | Pydantic Field constraint |
 | PS-2 | If `is_nodata == True`, then `elevation_m` is NaN | Validator (math.isnan) |
-| PS-3 | If `is_nodata == False`, then `elevation_m` is finite | Validator (math.isnan) |
+| PS-3 | If `is_nodata == False`, then `elevation_m` is finite | Validator (math.isfinite) |
 | PS-4 | `point` is valid GeoPoint | Nested validation |
 
-> **Why math.isnan instead of np.isnan?**
-> ProfileSample is a simple VO. Using `math.isnan` avoids importing numpy
-> just for a boolean check, keeping the domain layer lightweight.
+> **Why math.isfinite/isnan instead of numpy?**
+> ProfileSample is a simple VO. Using `math.isfinite` and `math.isnan` avoids
+> importing numpy just for a boolean check, keeping the domain layer lightweight.
 
 ---
 
@@ -669,14 +669,14 @@ def test_terrain_profile_short_path_minimum_samples():
 def test_terrain_profile_long_path():
     """Long profile within dem_large bounds."""
     grid = load_dem("tests/fixtures/dem_large.tif")
-    # Bounds: lat [-15, -10], lon [-50, -45]
-    start = GeoPoint(latitude=-11.0, longitude=-49.0)
-    end = GeoPoint(latitude=-14.0, longitude=-46.0)  # ~450km diagonal
+    # Bounds: lat [-26, -14], lon [-51, -39] (extended bounds)
+    start = GeoPoint(latitude=-15.0, longitude=-50.0)
+    end = GeoPoint(latitude=-25.0, longitude=-40.0)  # ~1300km diagonal
 
     profile = terrain_profile(grid, start, end)
 
     assert len(profile.samples) > 100
-    assert profile.total_distance_m > 400_000  # >400km
+    assert profile.total_distance_m > 1_000_000  # >1000km
 ```
 
 ### TC-009: Samples Strictly Ordered
@@ -1099,7 +1099,8 @@ def gen_dem_all_nodata_partial():
 | 1.2.0 | — | Fixed POST-4 (geodesic not linear), geodesic step derivation, `math.isnan`, 0.1m tolerance, edge clamping docs |
 | 1.2.1 | — | Added verification results: GeoPoint must be created, fixture generator script, implementation order |
 | 1.3.0 | — | **CRITICAL FIX**: Corrected all TC coordinates to match fixture bounds. Added `effective_step_m` field. Added Fixture Bounds Reference appendix. Added TC-018, TC-019. Fixed TC-017 to use MagicMock. Updated dem_all_nodata_partial bounds to match dem_100x100. Added POST-9 (no infill). Added numeric constants section. 19 TCs total. |
+| 1.3.1 | — | Updated fixture status table (✅ Updated/Created). Fixed TC-006, TC-015 coordinates for diagonal NoData stripe. Minor formatting. |
 
 ---
 
-<!-- FEAT-002 v1.3.0 — TerrainProfile with corrected fixture bounds, effective_step_m -->
+<!-- FEAT-002 v1.3.1 — TerrainProfile with fixture status updates -->
