@@ -4,15 +4,23 @@ Immutable data structures representing geographic concepts.
 All validation occurs at construction time via Pydantic.
 
 See spec/features/FEAT-001-load-dem.md for complete specifications.
+See spec/features/FEAT-002-terrain-profile.md for TerrainProfile specification.
 """
 
 from __future__ import annotations
 
+import math
 import warnings
 
 import numpy as np
 from numpy.typing import NDArray
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+# ---------------------------------------------------------------------------
+# Numeric Constants (FEAT-002)
+# ---------------------------------------------------------------------------
+# Tolerances for floating-point comparisons
+DISTANCE_TOLERANCE_M = 0.1  # 10 cm - for distance invariants
 
 
 class BoundingBox(BaseModel):
@@ -133,3 +141,171 @@ class TerrainGrid(BaseModel):
         object.__setattr__(self, "data", immutable)
 
         return self
+
+
+# ---------------------------------------------------------------------------
+# GeoPoint (FEAT-002)
+# ---------------------------------------------------------------------------
+class GeoPoint(BaseModel):
+    """Geographic coordinate in WGS84 (Value Object).
+
+    Represents a single point on the Earth's surface using latitude and longitude
+    in the WGS84 coordinate reference system.
+
+    Invariants:
+        GP-1: latitude in [-90, 90]
+        GP-2: longitude in [-180, 180]
+
+    Note on __eq__ and __hash__: Pydantic frozen models compare by value automatically.
+    Verified: GeoPoint(lat=1, lon=2) == GeoPoint(lat=1, lon=2) returns True.
+    """
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+    model_config = ConfigDict(frozen=True)
+
+
+# ---------------------------------------------------------------------------
+# ProfileSample (FEAT-002)
+# ---------------------------------------------------------------------------
+class ProfileSample(BaseModel):
+    """Single sample point along a terrain profile (Value Object).
+
+    Represents an elevation sample at a specific distance along a profile path,
+    including geographic location and NoData flagging.
+
+    Invariants:
+        PS-1: distance_m >= 0
+        PS-2: If is_nodata == True, then elevation_m is NaN
+        PS-3: If is_nodata == False, then elevation_m is finite
+        PS-4: point is valid GeoPoint
+
+    Note: Uses math.isnan instead of np.isnan to avoid numpy dependency in simple VO.
+    """
+
+    distance_m: float = Field(ge=0)  # Cumulative distance from start in meters
+    elevation_m: float  # Elevation at this point (NaN if nodata)
+    point: GeoPoint  # Geographic location of sample
+    is_nodata: bool = False  # Explicit flag for NoData regions
+
+    model_config = ConfigDict(frozen=True)
+
+    @model_validator(mode="after")
+    def validate_nodata_consistency(self) -> "ProfileSample":
+        """Validate consistency between is_nodata flag and elevation_m."""
+        # Use math.isnan to avoid numpy dependency in simple VO
+        if self.is_nodata and not math.isnan(self.elevation_m):
+            raise ValueError("is_nodata=True requires elevation_m=NaN")
+        if not self.is_nodata and math.isnan(self.elevation_m):
+            raise ValueError("is_nodata=False requires finite elevation_m")
+        return self
+
+
+# ---------------------------------------------------------------------------
+# TerrainProfile (FEAT-002)
+# ---------------------------------------------------------------------------
+class TerrainProfile(BaseModel):
+    """Elevation profile between two points (Value Object).
+
+    Represents an ordered sequence of elevation samples along a geodesic path
+    between a start and end point, with metadata about spacing and NoData coverage.
+
+    Invariants:
+        TP-1: len(samples) >= 2
+        TP-2: samples[0].distance_m == 0
+        TP-3: Samples strictly ordered by distance_m
+        TP-4: samples[-1].distance_m == total_distance_m (within tolerance)
+        TP-5: samples[0].point == start
+        TP-6: samples[-1].point == end
+        TP-7: has_nodata matches actual samples
+        TP-8: effective_step_m == total/(n-1) (within tolerance)
+        TP-9: total_distance_m > 0
+        TP-10: step_m > 0
+        TP-11: effective_step_m > 0
+
+    Fields:
+        step_m: The requested or derived spacing (input parameter)
+        effective_step_m: The actual average spacing = total_distance_m / (n_samples - 1)
+        These may differ slightly due to integer sample count.
+    """
+
+    start: GeoPoint  # Profile origin
+    end: GeoPoint  # Profile destination
+    samples: tuple[ProfileSample, ...]  # Ordered samples from start to end
+    total_distance_m: float = Field(gt=0)  # Total path length in meters
+    step_m: float = Field(gt=0)  # Requested/derived sample spacing
+    effective_step_m: float = Field(gt=0)  # Actual average spacing: total/(n-1)
+    has_nodata: bool  # True if any sample is nodata
+    interpolation: str = "bilinear"  # Method used (metadata for audit)
+
+    model_config = ConfigDict(frozen=True)
+
+    @model_validator(mode="after")
+    def validate_profile(self) -> "TerrainProfile":
+        """Validate all TerrainProfile invariants."""
+        # TP-1: At least 2 samples (start and end)
+        if len(self.samples) < 2:
+            raise ValueError(f"Profile must have >= 2 samples, got {len(self.samples)}")
+
+        # TP-2: First sample at distance 0
+        if self.samples[0].distance_m != 0:
+            raise ValueError(
+                f"First sample must be at distance 0, got {self.samples[0].distance_m}"
+            )
+
+        # TP-3: Samples ordered by distance (strictly increasing)
+        for i in range(1, len(self.samples)):
+            if self.samples[i].distance_m <= self.samples[i - 1].distance_m:
+                raise ValueError("Samples must be strictly ordered by distance")
+
+        # TP-4: Last sample distance equals total_distance_m (within tolerance)
+        if (
+            abs(self.samples[-1].distance_m - self.total_distance_m)
+            > DISTANCE_TOLERANCE_M
+        ):
+            raise ValueError(
+                f"Last sample distance ({self.samples[-1].distance_m:.3f}) must equal "
+                f"total_distance_m ({self.total_distance_m:.3f}) within {DISTANCE_TOLERANCE_M}m"
+            )
+
+        # TP-5: First sample point equals start (Pydantic frozen uses value equality)
+        if self.samples[0].point != self.start:
+            raise ValueError("First sample point must equal start")
+
+        # TP-6: Last sample point equals end
+        if self.samples[-1].point != self.end:
+            raise ValueError("Last sample point must equal end")
+
+        # TP-7: has_nodata consistency
+        actual_has_nodata = any(s.is_nodata for s in self.samples)
+        if self.has_nodata != actual_has_nodata:
+            raise ValueError(
+                f"has_nodata={self.has_nodata} but samples say {actual_has_nodata}"
+            )
+
+        # TP-8: effective_step_m consistency
+        expected_effective = self.total_distance_m / (len(self.samples) - 1)
+        if abs(self.effective_step_m - expected_effective) > DISTANCE_TOLERANCE_M:
+            raise ValueError(
+                f"effective_step_m ({self.effective_step_m:.3f}) must equal "
+                f"total/(n-1) ({expected_effective:.3f})"
+            )
+
+        return self
+
+    def elevations(self) -> tuple[float, ...]:
+        """Return elevation values (may contain NaN)."""
+        return tuple(s.elevation_m for s in self.samples)
+
+    def distances(self) -> tuple[float, ...]:
+        """Return cumulative distance values."""
+        return tuple(s.distance_m for s in self.samples)
+
+    def nodata_count(self) -> int:
+        """Return number of NoData samples."""
+        return sum(1 for s in self.samples if s.is_nodata)
+
+    def nodata_ratio(self) -> float:
+        """Return fraction of samples that are NoData (0.0 to 1.0)."""
+        return self.nodata_count() / len(self.samples)

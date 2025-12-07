@@ -1,7 +1,17 @@
 """Terrain Bounded Context - Error Hierarchy.
 
 Custom exceptions for terrain operations.
+
+See spec/features/FEAT-001-load-dem.md for DEM loading errors.
+See spec/features/FEAT-002-terrain-profile.md for profile errors.
 """
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from domain.terrain.value_objects import BoundingBox, GeoPoint
 
 
 class TerrainError(Exception):
@@ -30,3 +40,30 @@ class InvalidBoundsError(TerrainError):
 
 class InsufficientMemoryError(TerrainError):
     """Operation requires more memory than allowed or available."""
+
+
+# ---------------------------------------------------------------------------
+# FEAT-002: TerrainProfile Errors
+# ---------------------------------------------------------------------------
+class PointOutOfBoundsError(TerrainError):
+    """Point is outside the terrain grid bounds.
+
+    Attributes:
+        point: The offending GeoPoint
+        bounds: The grid's BoundingBox
+    """
+
+    def __init__(self, point: "GeoPoint", bounds: "BoundingBox") -> None:
+        self.point = point
+        self.bounds = bounds
+        super().__init__(
+            f"Point ({point.latitude:.6f}, {point.longitude:.6f}) outside bounds "
+            f"[lat: {bounds.min_y:.6f} to {bounds.max_y:.6f}, "
+            f"lon: {bounds.min_x:.6f} to {bounds.max_x:.6f}]"
+        )
+
+
+class InvalidProfileError(TerrainError):
+    """Profile parameters are invalid."""
+
+    pass

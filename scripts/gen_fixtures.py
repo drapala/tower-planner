@@ -39,6 +39,29 @@ from shared.fixtures_expected import EXPECTED_FIXTURE_COUNT, EXPECTED_FIXTURES
 # Output directory
 FIXTURES_DIR = Path(__file__).parent.parent / "tests" / "fixtures"
 
+# =============================================================================
+# Standard Bounds Configuration
+# =============================================================================
+# All fixtures use consistent geographic bounds to simplify test case design.
+# Tests can use coordinates within these bounds without worrying about fixture
+# coverage mismatches.
+#
+# Standard bounds: Brazil region covering São Paulo to southern Brazil
+# - Latitude:  [-25, -15] (10 degrees, ~1110 km north-south)
+# - Longitude: [-50, -40] (10 degrees, ~925 km east-west at this latitude)
+#
+# Extended bounds: For large-scale tests (e.g., 700km paths)
+# - Latitude:  [-26, -14] (12 degrees, ~1330 km)
+# - Longitude: [-51, -39] (12 degrees, ~1110 km)
+
+# Standard bounds (used by most fixtures)
+STD_MIN_LON, STD_MAX_LON = -50.0, -40.0
+STD_MIN_LAT, STD_MAX_LAT = -25.0, -15.0
+
+# Extended bounds (for dem_large.tif - covers 700km+ paths)
+EXT_MIN_LON, EXT_MAX_LON = -51.0, -39.0
+EXT_MIN_LAT, EXT_MAX_LAT = -26.0, -14.0
+
 
 def ensure_dir() -> None:
     """Ensure fixtures directory exists."""
@@ -164,25 +187,37 @@ def gen_dem_utm23s() -> None:
 # TC-004: NoData Conversion
 # =============================================================================
 def gen_dem_with_nodata() -> None:
-    """Generate 20x20 DEM with defined nodata value and some masked pixels.
+    """Generate 100x100 DEM with defined nodata value and masked region.
 
+    - Uses STANDARD bounds (same as dem_100x100_4326.tif)
     - nodata = -9999
-    - ~1% pixels are nodata (4/400, top-left 2x2 corner)
+    - Diagonal stripe of NoData from top-left to bottom-right (~10% pixels)
+    - Ensures any path across the grid will cross NoData
     """
     path = FIXTURES_DIR / "dem_with_nodata.tif"
-    height, width = 20, 20
+    height, width = 100, 100
     nodata = -9999.0
 
-    # Create elevation data
-    data = np.linspace(50, 200, height * width, dtype=np.float32).reshape(height, width)
+    # Create elevation data with gradient
+    data = np.linspace(50, 500, height * width, dtype=np.float32).reshape(height, width)
 
-    # Set top-left 2x2 region as nodata (4/400 = 1%)
-    data[0:2, 0:2] = nodata
+    # Create diagonal NoData stripe (10 pixels wide)
+    # This ensures profiles crossing the grid hit NoData
+    for i in range(height):
+        start_col = max(0, i - 5)
+        end_col = min(width, i + 5)
+        data[i, start_col:end_col] = nodata
 
-    transform = Affine.translation(-45.0, -20.0) * Affine.scale(0.01, -0.01)
+    # Standard bounds: lat [-25, -15], lon [-50, -40]
+    # Resolution: 0.1 degrees per pixel
+    transform = Affine.translation(STD_MIN_LON, STD_MAX_LAT) * Affine.scale(0.1, -0.1)
 
     write_raster(path, data, transform, crs=CRS.from_epsg(4326), nodata=nodata)
-    print(f"  Created: {path.name} (20x20, EPSG:4326, nodata=-9999)")
+
+    nodata_pct = 100 * (np.sum(data == nodata) / data.size)
+    print(
+        f"  Created: {path.name} (100x100, EPSG:4326, {nodata_pct:.0f}% nodata diagonal)"
+    )
 
 
 # =============================================================================
@@ -252,48 +287,61 @@ def gen_rgb_image() -> None:
 # TC-009: Bit-exact for same CRS
 # =============================================================================
 def gen_dem_known_values_4326() -> None:
-    """Generate 20x20 DEM with known pixel values for bit-exact testing.
+    """Generate 100x100 DEM with known pixel values for bit-exact testing.
 
-    - pixel[10, 10] = 150.5 (for assertion)
+    - Uses STANDARD bounds (same as dem_100x100_4326.tif)
+    - Known values at specific pixels for interpolation verification
     - float32 dtype
+    - Used for FEAT-002 TC-010 (bilinear interpolation)
     """
     path = FIXTURES_DIR / "dem_known_values_4326.tif"
-    height, width = 20, 20
+    height, width = 100, 100
 
-    # Create data with known value at [10, 10]
-    data = np.zeros((height, width), dtype=np.float32)
-    data[10, 10] = 150.5
-    data[0, 0] = 100.0
-    data[19, 19] = 200.0
+    # Create gradient data as base
+    data = np.linspace(100, 500, height * width, dtype=np.float32).reshape(
+        height, width
+    )
 
-    transform = Affine.translation(-45.0, -20.0) * Affine.scale(0.01, -0.01)
+    # Add some known values at specific locations
+    data[50, 50] = 150.5  # Center
+    data[0, 0] = 100.0  # Top-left (north-west)
+    data[99, 99] = 500.0  # Bottom-right (south-east)
+
+    # Standard bounds: lat [-25, -15], lon [-50, -40]
+    # Resolution: 0.1 degrees per pixel
+    transform = Affine.translation(STD_MIN_LON, STD_MAX_LAT) * Affine.scale(0.1, -0.1)
 
     write_raster(path, data, transform, crs=CRS.from_epsg(4326))
-    print(f"  Created: {path.name} (20x20, known values, float32)")
+    print(f"  Created: {path.name} (100x100, known values, float32, standard bounds)")
 
 
 # =============================================================================
 # TC-009b: Same CRS, non-float32 source
 # =============================================================================
 def gen_dem_known_values_4326_int16() -> None:
-    """Generate 20x20 DEM with known values in int16 dtype.
+    """Generate 100x100 DEM with known values in int16 dtype.
 
-    - pixel[10, 10] = 150 (int16, becomes 150.0 after cast)
-    - Tests dtype conversion path
+    - Uses STANDARD bounds (same as dem_100x100_4326.tif)
+    - Known values at specific pixels
+    - int16 dtype - tests dtype conversion path
     """
     path = FIXTURES_DIR / "dem_known_values_4326_int16.tif"
-    height, width = 20, 20
+    height, width = 100, 100
 
-    # Create data with known value at [10, 10]
-    data = np.zeros((height, width), dtype=np.int16)
-    data[10, 10] = 150
-    data[0, 0] = 100
-    data[19, 19] = 200
+    # Create gradient data as base
+    data = np.linspace(100, 500, height * width, dtype=np.int16).reshape(height, width)
 
-    transform = Affine.translation(-45.0, -20.0) * Affine.scale(0.01, -0.01)
+    # Add some known values at specific locations
+    data[50, 50] = 150  # Center
+    data[0, 0] = 100  # Top-left
+    data[99, 99] = 500  # Bottom-right
+
+    # Standard bounds: lat [-25, -15], lon [-50, -40]
+    # Resolution: 0.1 degrees per pixel
+    transform = Affine.translation(STD_MIN_LON, STD_MAX_LAT) * Affine.scale(0.1, -0.1)
 
     write_raster(path, data, transform, crs=CRS.from_epsg(4326), dtype="int16")
-    print(f"  Created: {path.name} (20x20, known values, int16)")
+    print(f"  Created: {path.name} (100x100, known values, int16, standard bounds)")
 
 
 # =============================================================================
@@ -341,24 +389,37 @@ def gen_dem_85pct_nodata() -> None:
 # TC-012, TC-018: Large File / Memory Budget
 # =============================================================================
 def gen_dem_large() -> None:
-    """Generate 500x500 DEM for memory budget testing.
+    """Generate 600x600 DEM for memory budget and long path testing.
 
-    - ~1MB uncompressed (500*500*4 bytes = 1,000,000 bytes)
-    - Used for TC-012 (large file) and TC-018 (memory budget)
+    - Uses EXTENDED bounds: lat [-26, -14], lon [-51, -39]
+    - ~1.4MB uncompressed (600*600*4 bytes = 1,440,000 bytes)
+    - Covers ~1330km x 1110km area - sufficient for 700km+ path tests
+    - Used for TC-012 (large file), TC-018 (memory budget), FEAT-002 TC-008 (long path)
+
+    Coverage verification:
+        FEAT-002 TC-008 uses: start=(-20, -44) to end=(-25, -50)
+        This fixture covers: lat [-26, -14], lon [-51, -39]
+        Both points are within bounds.
     """
     path = FIXTURES_DIR / "dem_large.tif"
-    height, width = 500, 500
+    height, width = 600, 600
 
     # Create random-ish elevation data using modern Generator API (thread-safe)
     rng = np.random.default_rng(42)
     data = (rng.random((height, width)) * 1000).astype(np.float32)
 
-    transform = Affine.translation(-50.0, -10.0) * Affine.scale(0.01, -0.01)
+    # Extended bounds: lat [-26, -14], lon [-51, -39]
+    # Resolution: (51-39)/600 = 0.02 degrees lon, (26-14)/600 = 0.02 degrees lat
+    lon_res = (EXT_MAX_LON - EXT_MIN_LON) / width  # 0.02
+    lat_res = (EXT_MAX_LAT - EXT_MIN_LAT) / height  # 0.02
+    transform = Affine.translation(EXT_MIN_LON, EXT_MAX_LAT) * Affine.scale(
+        lon_res, -lat_res
+    )
 
     write_raster(path, data, transform, crs=CRS.from_epsg(4326))
 
     size_kb = path.stat().st_size / 1024
-    print(f"  Created: {path.name} (500x500, {size_kb:.0f}KB)")
+    print(f"  Created: {path.name} (600x600, {size_kb:.0f}KB, extended bounds)")
 
 
 # =============================================================================
@@ -457,6 +518,43 @@ def gen_dem_polar_extreme() -> None:
 
 
 # =============================================================================
+# FEAT-002 TC-014: Partial NoData Region
+# =============================================================================
+def gen_dem_all_nodata_partial() -> None:
+    """Generate 100x100 DEM with valid west half, NoData east half.
+
+    - Uses STANDARD bounds (same as dem_100x100_4326.tif)
+    - West 50% has valid elevation data
+    - East 50% is NoData (NaN)
+    - Used for FEAT-002 TC-014: profile crossing NoData region
+
+    Layout:
+        ┌─────────────────┐
+        │ valid │  NaN    │
+        │ 150m  │  NaN    │
+        │ west  │  east   │
+        └─────────────────┘
+    """
+    path = FIXTURES_DIR / "dem_all_nodata_partial.tif"
+    height, width = 100, 100
+
+    # Create elevation data - all valid at 150m initially
+    data = np.full((height, width), 150.0, dtype=np.float32)
+
+    # East half is NoData (columns 50-99)
+    data[:, 50:] = np.nan
+
+    # Standard bounds: lat [-25, -15], lon [-50, -40]
+    # Resolution: 0.1 degrees per pixel
+    transform = Affine.translation(STD_MIN_LON, STD_MAX_LAT) * Affine.scale(0.1, -0.1)
+
+    write_raster(path, data, transform, crs=CRS.from_epsg(4326), nodata=np.nan)
+
+    nodata_pct = 100 * (np.sum(np.isnan(data)) / data.size)
+    print(f"  Created: {path.name} (100x100, {nodata_pct:.0f}% nodata east half)")
+
+
+# =============================================================================
 # TC-019: Invalid Geotransform (NaN/Inf)
 # =============================================================================
 def gen_dem_valid_for_transform_patch_test() -> None:
@@ -547,6 +645,9 @@ def main() -> int:
 
     print("\nTC-019: NaN Transform (valid file for monkeypatch)")
     gen_dem_valid_for_transform_patch_test()
+
+    print("\nFEAT-002 TC-014: Partial NoData")
+    gen_dem_all_nodata_partial()
 
     print()
     print("=" * 60)

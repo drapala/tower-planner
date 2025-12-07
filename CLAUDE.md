@@ -1405,14 +1405,23 @@ def validate_grid(self) -> "TerrainGrid":
 - Shape may change after reprojection; tests must not assume shape/extent preservation across CRS changes.
 - `Resampling.bilinear` chosen for continuous DEM data; nearest/categorical handling is out of FEAT-001 scope.
 
+### RF Propagation Requirements (FEAT-002+)
+
+When implementing RF propagation features:
+
+1. **Earth curvature correction**: Apply correction for distances > 1 km (4/3 Earth radius model for standard atmosphere).
+2. **Fresnel zone calculations**: Use correct wavelength formulas: `λ = c / f`, `F1 = sqrt(λ * d1 * d2 / (d1 + d2))`.
+3. **Path loss model validity**: Document regime constraints for each model (frequency range, terrain type, distance limits).
+
 
 <!--
-CLAUDE.md v1.15.0 | Last updated: 2025-12-06
+CLAUDE.md v1.16.0 | Last updated: 2025-12-07
 
 IMPORTANT: Always update the "Last updated" date above when modifying this file.
 Format: YYYY-MM-DD
 
 Changelog:
+- v1.16.0 (2025-12-07): Added RF Propagation Requirements section for FEAT-002+ (Earth curvature, Fresnel zones, path loss validity)
 - v1.15.0 (2025-12-06): Fixed Rule 3 stub precedence (stubs take precedence, not installed packages); updated session fixture example to use in-place sys.path modification
 - v1.14.0 (2025-12-06): Added consolidated GIS/FEAT-001 architecture & patterns section for maintainers
 - v1.13.0 (2025-12-06): Added SEC-5 symlink policy and conditional VO immutability pattern; refined SEC-7 logging example with errno/strerror

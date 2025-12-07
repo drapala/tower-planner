@@ -15,3 +15,4 @@ This directory contains the living specification for the Tower Planner system.
 | ID | Name | BC | Status |
 |----|------|-----|--------|
 | [FEAT-001](features/FEAT-001-load-dem.md) | LoadDEM | terrain | Draft |
+| [FEAT-002](features/FEAT-002-terrain-profile.md) | TerrainProfile | terrain | Draft |
