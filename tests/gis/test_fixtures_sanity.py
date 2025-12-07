@@ -136,6 +136,7 @@ class TestValidGeoTiffs:
     def test_dem_known_values_4326(self) -> None:
         """TC-009: Known values fixture (float32)."""
         import numpy as np
+
         import rasterio
 
         path = fixture_path("dem_known_values_4326.tif")
@@ -163,6 +164,7 @@ class TestValidGeoTiffs:
     def test_dem_85pct_nodata(self) -> None:
         """TC-011: High nodata fixture."""
         import numpy as np
+
         import rasterio
 
         path = fixture_path("dem_85pct_nodata.tif")
@@ -190,6 +192,7 @@ class TestValidGeoTiffs:
     def test_dem_extreme_elevations(self) -> None:
         """TC-013: Extreme elevations fixture."""
         import numpy as np
+
         import rasterio
 
         path = fixture_path("dem_extreme_elevations.tif")

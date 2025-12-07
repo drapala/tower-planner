@@ -29,11 +29,11 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
+
 import rasterio
 from affine import Affine
-from numpy.typing import NDArray
 from rasterio.crs import CRS
-
 from shared.fixtures_expected import EXPECTED_FIXTURE_COUNT, EXPECTED_FIXTURES
 
 # Output directory

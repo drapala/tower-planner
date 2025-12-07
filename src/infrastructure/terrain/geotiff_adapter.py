@@ -23,13 +23,9 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
 import rasterio
 from affine import Affine
-from rasterio.crs import CRS
-from rasterio.enums import Resampling
-from rasterio.transform import array_bounds
-from rasterio.warp import calculate_default_transform, reproject
-
 from domain.terrain.errors import (
     AllNoDataError,
     InsufficientMemoryError,
@@ -39,6 +35,10 @@ from domain.terrain.errors import (
     MissingCRSError,
 )
 from domain.terrain.value_objects import BoundingBox, TerrainGrid
+from rasterio.crs import CRS
+from rasterio.enums import Resampling
+from rasterio.transform import array_bounds
+from rasterio.warp import calculate_default_transform, reproject
 
 # Module-level logger (reused across all calls)
 logger = logging.getLogger(__name__)
